@@ -19,6 +19,7 @@ from test_runner.execution.targets import (
     ExecutionResult,
     ExecutionStatus,
     ExecutionTarget,
+    LocalTarget,
     SSHTarget,
 )
 
@@ -394,6 +395,42 @@ class TestTaskExecutor:
         assert len(records) == 1
         assert records[0].final_status == ExecutionStatus.PASSED
         assert captured == ["ssh:lab-a"]
+
+    @pytest.mark.asyncio
+    async def test_catalog_ssh_metadata_overrides_explicit_local_target(
+        self, monkeypatch
+    ):
+        captured: list[str] = []
+
+        async def fake_execute(self, command, *, working_directory="", env=None, timeout=None):
+            captured.append(self.name)
+            return _make_result(ExecutionStatus.PASSED)
+
+        monkeypatch.setattr(SSHTarget, "execute", fake_execute)
+
+        executor = TaskExecutor(policy=ExecutionPolicy.default())
+        command = TestCommand(
+            command=["python", "agent_test.py"],
+            display="python agent_test.py",
+            framework=TestFramework.SCRIPT,
+            working_directory="/opt/test-suite",
+            metadata={
+                "catalog_system_transport": "ssh",
+                "catalog_system_config": {
+                    "alias": "system A",
+                    "hostname": "192.168.1.50",
+                    "username": "root",
+                    "auth_method": "password",
+                    "password_env_var": "SYSTEM_A_SSH_PASSWORD",
+                },
+            },
+        )
+
+        records = await executor.execute_batch([command], target=LocalTarget())
+
+        assert len(records) == 1
+        assert records[0].final_status == ExecutionStatus.PASSED
+        assert captured == ["ssh:system A"]
 
 
 # ---------------------------------------------------------------------------

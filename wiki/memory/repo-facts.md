@@ -18,7 +18,7 @@
 
 ## Main Regression Bundle Status
 
-- Fact: The main regression bundle covering config, catalog, intent service, CLI, parser, execution targets, execution attempts, orchestrator delegation wiring, and troubleshooter wiring is passing at `337 passed, 16 warnings`.
+- Fact: The main regression bundle covering config, catalog, intent service, CLI, parser, execution targets, execution attempts, orchestrator delegation wiring, and troubleshooter wiring is passing at `338 passed, 16 warnings`.
 - Scope: runtime
 - Confidence: high
 - Source: `./.venv/bin/pytest -q tests/test_config.py tests/test_catalog.py tests/test_intent_service.py tests/test_cli.py tests/test_parser.py tests/test_execution_targets.py tests/test_execution_attempts.py tests/test_orchestrator_delegation_wiring.py tests/test_troubleshooter_wiring.py`
@@ -262,6 +262,14 @@
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/catalog.py`, `src/test_runner/execution/targets.py`, `registry/catalog.example.json`, and `tests/test_execution_targets.py`
+- Last verified: 2026-04-06
+
+## Cataloged SSH Target Resolution
+
+- Fact: Cataloged SSH commands now override the default local execution target even when the CLI provided an explicit `LocalTarget` as the default target object. This prevents cataloged remote runs from falling back to local subprocess execution.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/execution/executor.py` and `tests/test_execution_attempts.py`
 - Last verified: 2026-04-06
 
 ## Catalog Dry-Run Behavior

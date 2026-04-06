@@ -251,12 +251,19 @@ class TaskExecutor:
         target_name: str,
     ) -> tuple[ExecutionTarget | None, str]:
         """Resolve the effective execution target for one command."""
-        if target is not None or target_name != "local":
+        if target_name != "local":
+            return target, target_name
+
+        target_is_explicit_nonlocal = (
+            target is not None
+            and str(getattr(target, "name", "")).lower() != "local"
+        )
+        if target_is_explicit_nonlocal:
             return target, target_name
 
         metadata = command.metadata or {}
         if str(metadata.get("catalog_system_transport", "")).lower() != "ssh":
-            return None, target_name
+            return target, target_name
 
         system_config = metadata.get("catalog_system_config")
         if not isinstance(system_config, dict):
@@ -265,7 +272,7 @@ class TaskExecutor:
                 "falling back to local target",
                 command.display,
             )
-            return None, target_name
+            return target, target_name
 
         return SSHTarget.from_metadata(system_config), "ssh"
 

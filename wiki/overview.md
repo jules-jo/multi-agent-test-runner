@@ -75,7 +75,7 @@ The current product direction is narrowing from a generic natural-language test 
 - Placeholder values copied from `.env.example` are now treated as unset, so a fresh stub `.env` no longer masquerades as a valid LLM configuration.
 - Serialized execution summaries now preserve the last attempt's stdout/stderr so launch failures retain useful context during troubleshooting.
 - The main regression bundle covering config, catalog, parser, CLI, execution targets, attempts, delegation wiring, and troubleshooter wiring now passes at `329 passed, 16 warnings`.
-- The current main regression bundle now passes at `337 passed, 16 warnings` after adding password-based SSH support for saved systems.
+- The current main regression bundle now passes at `338 passed, 16 warnings` after fixing local-default target masking of cataloged SSH execution.
 
 ## Current Known Gaps
 

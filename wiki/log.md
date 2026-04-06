@@ -50,5 +50,7 @@
 - Re-ran the main regression bundle successfully after interactive session-memory and system-override work: `333 passed, 16 warnings`.
 - Added password-based SSH support for saved systems using an env-var password reference plus a Python SSH backend, while keeping secrets out of the catalog file.
 - Updated the example catalog with an explicit password-auth system example and re-ran the main regression bundle successfully: `337 passed, 16 warnings`.
+- Fixed executor target resolution so cataloged SSH commands override the CLI's default local target instead of accidentally executing as local subprocesses.
+- Re-ran the main regression bundle successfully after the SSH target-resolution fix: `338 passed, 16 warnings`.
 - Added a run note for cloning and project-scoped setup of `oh-my-codex`, including verification output and remaining host dependency gaps (`cargo`, `tmux`).
 - Extended the `oh-my-codex` run note with the standalone global OMX install, PATH location, and final global verification result.
