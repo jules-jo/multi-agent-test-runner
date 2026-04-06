@@ -406,3 +406,81 @@ class CatalogRegistry:
         if not normalized_phrase:
             return False
         return f" {normalized_phrase} " in f" {normalized_request} "
+
+
+class CatalogRepository:
+    """Persistence helper for the JSON-backed catalog document."""
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+
+    def load_document(self) -> CatalogDocument:
+        """Load the current catalog document, or return an empty one."""
+        if not self.path.exists():
+            return CatalogDocument()
+        raw = json.loads(self.path.read_text(encoding="utf-8"))
+        return CatalogDocument.model_validate(raw)
+
+    def save_document(self, document: CatalogDocument) -> CatalogDocument:
+        """Validate and persist a catalog document."""
+        validated = CatalogDocument.model_validate(document.model_dump(mode="python"))
+        CatalogRegistry(validated.entries, systems=validated.systems)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(
+            validated.model_dump_json(indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return validated
+
+    def has_entry_alias(self, alias: str) -> bool:
+        """Return True when the alias already exists."""
+        normalized = CatalogRegistry._normalize_phrase(alias)
+        document = self.load_document()
+        return any(
+            CatalogRegistry._normalize_phrase(entry.alias) == normalized
+            for entry in document.entries
+        )
+
+    def get_system(self, alias: str) -> CatalogSystem | None:
+        """Return the saved system with the given alias, if any."""
+        normalized = CatalogRegistry._normalize_phrase(alias)
+        document = self.load_document()
+        for system in document.systems:
+            if CatalogRegistry._normalize_phrase(system.alias) == normalized:
+                return system
+        if normalized == CatalogRegistry._normalize_phrase("local"):
+            return CatalogSystem(
+                alias="local",
+                description="Current process host",
+                transport=CatalogSystemTransport.LOCAL,
+            )
+        return None
+
+    def add_system(self, system: CatalogSystem) -> CatalogDocument:
+        """Persist a new system definition."""
+        document = self.load_document()
+        if self.get_system(system.alias) is not None:
+            raise ValueError(f"Catalog system alias {system.alias!r} already exists.")
+        updated = CatalogDocument(
+            version=document.version,
+            systems=[*document.systems, system],
+            entries=document.entries,
+        )
+        return self.save_document(updated)
+
+    def add_entry(self, entry: CatalogEntry) -> CatalogDocument:
+        """Persist a new runnable entry."""
+        document = self.load_document()
+        if self.has_entry_alias(entry.alias):
+            raise ValueError(f"Catalog alias {entry.alias!r} already exists.")
+        if self.get_system(entry.system) is None:
+            raise ValueError(
+                f"Catalog entry {entry.alias!r} references unknown system "
+                f"{entry.system!r}.",
+            )
+        updated = CatalogDocument(
+            version=document.version,
+            systems=document.systems,
+            entries=[*document.entries, entry],
+        )
+        return self.save_document(updated)

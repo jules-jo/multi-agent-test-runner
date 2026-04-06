@@ -15,6 +15,7 @@ import asyncio
 import inspect
 import logging
 import os
+import shlex
 import sys
 import textwrap
 from pathlib import Path
@@ -27,6 +28,13 @@ from rich.text import Text
 from test_runner import __version__
 from test_runner.config import Config
 from test_runner.agents.intent_service import IntentParserService, ParseMode
+from test_runner.catalog import (
+    CatalogEntry,
+    CatalogExecutionType,
+    CatalogRepository,
+    CatalogSystem,
+    CatalogSystemTransport,
+)
 from test_runner.execution.factory import get_factory
 from test_runner.orchestrator.hub import OrchestratorHub, RunPhase, RunState
 from test_runner.reporting import (
@@ -206,6 +214,7 @@ def _print_frontdoor_help() -> None:
     console.print("[dim]- run all tests[/dim]")
     console.print("[dim]- list pytest tests[/dim]")
     console.print("[dim]- rerun failed pytest tests[/dim]")
+    console.print("[dim]- unknown saved tests can be registered interactively[/dim]")
     console.print("[dim]Use `quit` to leave interactive mode.[/dim]")
 
 
@@ -236,6 +245,263 @@ def _maybe_handle_frontdoor_input(text: str) -> bool:
         return True
 
     return False
+
+
+def _prompt_text(prompt: str, *, default: str | None = None) -> str:
+    """Prompt for text input with an optional default."""
+    suffix = f" [{default}]" if default not in (None, "") else ""
+    response = input(f"{prompt}{suffix}: ").strip()
+    if not response and default is not None:
+        return default
+    return response
+
+
+def _prompt_required_text(prompt: str, *, default: str | None = None) -> str:
+    """Prompt until a non-empty value is entered."""
+    while True:
+        value = _prompt_text(prompt, default=default)
+        if value:
+            return value
+        console.print("[red]A value is required.[/red]")
+
+
+def _prompt_yes_no(prompt: str, *, default: bool = False) -> bool:
+    """Prompt for a yes/no answer."""
+    options = "Y/n" if default else "y/N"
+    while True:
+        value = input(f"{prompt} [{options}]: ").strip().lower()
+        if not value:
+            return default
+        if value in {"y", "yes"}:
+            return True
+        if value in {"n", "no"}:
+            return False
+        console.print("[red]Please answer yes or no.[/red]")
+
+
+def _prompt_optional_int(prompt: str) -> int | None:
+    """Prompt for an optional positive integer."""
+    while True:
+        raw = _prompt_text(prompt)
+        if not raw:
+            return None
+        try:
+            value = int(raw)
+        except ValueError:
+            console.print("[red]Enter a whole number or leave it blank.[/red]")
+            continue
+        if value < 1:
+            console.print("[red]Value must be greater than zero.[/red]")
+            continue
+        return value
+
+
+def _prompt_saved_args() -> list[str]:
+    """Prompt for optional saved arguments."""
+    while True:
+        raw = _prompt_text("Saved arguments")
+        if not raw:
+            return []
+        try:
+            return shlex.split(raw)
+        except ValueError as exc:
+            console.print(f"[red]Could not parse arguments:[/red] {exc}")
+
+
+def _prompt_execution_type() -> CatalogExecutionType:
+    """Prompt for the saved execution type."""
+    aliases = {
+        "python": CatalogExecutionType.PYTHON_SCRIPT,
+        "py": CatalogExecutionType.PYTHON_SCRIPT,
+        "python_script": CatalogExecutionType.PYTHON_SCRIPT,
+        "script": CatalogExecutionType.PYTHON_SCRIPT,
+        "binary": CatalogExecutionType.EXECUTABLE,
+        "bin": CatalogExecutionType.EXECUTABLE,
+        "exe": CatalogExecutionType.EXECUTABLE,
+        "executable": CatalogExecutionType.EXECUTABLE,
+    }
+    while True:
+        raw = _prompt_text(
+            "Execution type",
+            default=CatalogExecutionType.PYTHON_SCRIPT.value,
+        ).strip().lower()
+        resolved = aliases.get(raw)
+        if resolved is not None:
+            return resolved
+        console.print(
+            "[red]Choose one of: python_script, executable.[/red]",
+        )
+
+
+def _prompt_transport() -> CatalogSystemTransport:
+    """Prompt for the execution transport."""
+    aliases = {
+        "local": CatalogSystemTransport.LOCAL,
+        "ssh": CatalogSystemTransport.SSH,
+    }
+    while True:
+        raw = _prompt_text(
+            "System transport",
+            default=CatalogSystemTransport.LOCAL.value,
+        ).strip().lower()
+        resolved = aliases.get(raw)
+        if resolved is not None:
+            return resolved
+        console.print("[red]Choose one of: local, ssh.[/red]")
+
+
+def _prompt_keywords() -> list[str]:
+    """Prompt for optional comma-separated keywords."""
+    raw = _prompt_text("Keywords (comma-separated)")
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _prompt_catalog_system(alias: str) -> CatalogSystem:
+    """Collect a new catalog system definition interactively."""
+    console.print(
+        f"[cyan]Creating new execution system '{alias}'.[/cyan]"
+    )
+    transport = _prompt_transport()
+    description = _prompt_text("System description")
+    working_directory = _prompt_text("System working directory")
+
+    hostname = ""
+    ssh_config_host = ""
+    username = ""
+    port: int | None = None
+    credential_ref = ""
+
+    if transport == CatalogSystemTransport.SSH:
+        while True:
+            hostname = _prompt_text("SSH hostname")
+            ssh_config_host = _prompt_text(
+                "SSH config host alias",
+                default=alias,
+            )
+            if hostname or ssh_config_host:
+                break
+            console.print(
+                "[red]Enter a hostname or ssh config host alias.[/red]"
+            )
+        username = _prompt_text("SSH username")
+        port = _prompt_optional_int("SSH port")
+        credential_ref = _prompt_text(
+            "Credential reference",
+            default=f"ssh-config:{alias}" if ssh_config_host else "",
+        )
+
+    return CatalogSystem(
+        alias=alias,
+        description=description,
+        transport=transport,
+        hostname=hostname,
+        username=username,
+        port=port,
+        ssh_config_host=ssh_config_host,
+        working_directory=working_directory,
+        credential_ref=credential_ref,
+    )
+
+
+def _render_catalog_registration_summary(
+    entry: CatalogEntry,
+    *,
+    system: CatalogSystem | None = None,
+    catalog_path: str,
+) -> None:
+    """Print the entry/system that is about to be saved."""
+    console.print(
+        f"[cyan]About to save this definition to {catalog_path}:[/cyan]"
+    )
+    console.print(f"[dim]- alias: {entry.alias}[/dim]")
+    console.print(f"[dim]- type: {entry.execution_type.value}[/dim]")
+    console.print(f"[dim]- target: {entry.target}[/dim]")
+    console.print(f"[dim]- system: {entry.system}[/dim]")
+    if entry.args:
+        console.print(f"[dim]- args: {' '.join(entry.args)}[/dim]")
+    if entry.keywords:
+        console.print(f"[dim]- keywords: {', '.join(entry.keywords)}[/dim]")
+    if entry.working_directory:
+        console.print(f"[dim]- working directory: {entry.working_directory}[/dim]")
+    if entry.timeout is not None:
+        console.print(f"[dim]- timeout: {entry.timeout}s[/dim]")
+    if system is not None:
+        console.print(
+            f"[dim]- new system transport: {system.transport.value}[/dim]"
+        )
+
+
+def _teach_catalog_entry(config: Config, request: str) -> CatalogEntry | None:
+    """Collect and persist a new catalog entry from interactive prompts."""
+    if not config.test_catalog_path:
+        console.print(
+            "[red]Catalog teaching is unavailable because no catalog path is configured.[/red]"
+        )
+        return None
+
+    repository = CatalogRepository(config.test_catalog_path)
+    alias = _prompt_required_text("Catalog alias")
+    while repository.has_entry_alias(alias):
+        console.print(f"[red]Alias {alias!r} already exists.[/red]")
+        alias = _prompt_required_text("Catalog alias")
+
+    execution_type = _prompt_execution_type()
+    default_target = "scripts/" if execution_type == CatalogExecutionType.PYTHON_SCRIPT else "./bin/"
+    target = _prompt_required_text("Target path or executable", default=default_target)
+    system_alias = _prompt_text("System alias", default="local") or "local"
+
+    new_system: CatalogSystem | None = None
+    if repository.get_system(system_alias) is None:
+        new_system = _prompt_catalog_system(system_alias)
+
+    description = _prompt_text(
+        "Description",
+        default=f"Saved from interactive request: {request}",
+    )
+    entry = CatalogEntry(
+        alias=alias,
+        description=description,
+        execution_type=execution_type,
+        target=target,
+        system=system_alias,
+        args=_prompt_saved_args(),
+        keywords=_prompt_keywords(),
+        working_directory=_prompt_text("Entry working directory"),
+        timeout=_prompt_optional_int("Timeout seconds"),
+    )
+
+    _render_catalog_registration_summary(
+        entry,
+        system=new_system,
+        catalog_path=config.test_catalog_path,
+    )
+    if not _prompt_yes_no("Save this catalog entry now?", default=True):
+        console.print("[yellow]Registration canceled.[/yellow]")
+        return None
+
+    try:
+        if new_system is not None:
+            repository.add_system(new_system)
+        repository.add_entry(entry)
+    except ValueError as exc:
+        console.print(f"[red]Could not save catalog entry:[/red] {exc}")
+        return None
+
+    console.print(
+        f"[green]Saved catalog entry '{entry.alias}' in {config.test_catalog_path}.[/green]"
+    )
+    return entry
+
+
+def _is_unknown_catalog_request(state: RunState) -> bool:
+    """Return True when the run failed because no saved alias matched."""
+    return (
+        state.phase == RunPhase.FAILED
+        and not state.execution_results
+        and any("cataloged test definition" in error for error in state.errors)
+    )
 
 
 def interactive_loop(*, dispatch_fn: RequestDispatcher | None = None) -> None:
@@ -545,6 +811,8 @@ async def _handle_request(
     args: argparse.Namespace,
     config: Config,
     request: str,
+    *,
+    allow_catalog_registration: bool = True,
 ) -> int:
     """Handle one validated request through dry-run or full orchestration."""
     if _maybe_handle_frontdoor_input(request):
@@ -565,6 +833,31 @@ async def _handle_request(
     orchestrator = _create_orchestrator(config, args)
     state = await orchestrator.run(request)
     _print_run_notes(state)
+
+    if (
+        allow_catalog_registration
+        and args.interactive
+        and not args.dry_run
+        and config.test_catalog_path
+        and _is_unknown_catalog_request(state)
+    ):
+        if _prompt_yes_no(
+            "No saved catalog entry matched. Register a new test now?",
+            default=False,
+        ):
+            saved_entry = _teach_catalog_entry(config, request)
+            if saved_entry is not None and _prompt_yes_no(
+                f"Run saved alias '{saved_entry.alias}' now?",
+                default=True,
+            ):
+                return await _handle_request(
+                    args,
+                    config,
+                    f"run {saved_entry.alias}",
+                    allow_catalog_registration=False,
+                )
+            return 0 if saved_entry is not None else 1
+
     return _exit_code_from_state(state)
 
 

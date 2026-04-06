@@ -2,11 +2,12 @@
 
 ## High Priority
 
-### Catalog Population Workflow Is Missing
+### Catalog Population Workflow Needs Expansion
 
 - A deterministic JSON-backed catalog resolver now auto-loads `registry/catalog.json` in this repo, so closed-world execution is now the default behavior here.
 - The shipped default catalog is intentionally empty, which is safe but not yet user-friendly.
-- The next product gap is not enforcement, but a good way for users to teach or manage saved test definitions without editing JSON manually.
+- The interactive CLI now has a first-pass registration dialogue for unknown requests, but the broader management story is still thin.
+- The next product gap is richer teaching and management of saved definitions, not basic enforcement.
 
 ### Dataiku Mesh Integration Is Only Partially Proven
 
@@ -31,10 +32,11 @@
 - There is no higher-level conversational session layer for preserving turn-local clarifications, approvals, or threaded follow-up state inside the CLI itself.
 - Only a lightweight front door exists so far; broader conversational intents are still not modeled separately from task requests.
 
-### Catalog Teaching Workflow Is Still Missing
+### Catalog Teaching Workflow Is Still Thin
 
-- The current catalog is machine-readable and executable, but there is no implemented conversational flow for proposing a new test, confirming alias/path/system details, and persisting the approved definition.
-- The wiki captures the rule that new runnable tests require explicit confirmation, but the product flow to do that has not been built yet.
+- The current interactive CLI can now collect and persist a new saved test definition after an unknown request, including a new system definition when needed.
+- The flow is still form-like and local to the terminal REPL rather than a richer chatbot/session capability.
+- There is still no edit/delete/list management flow for catalog entries from the chat surface.
 
 ### Remote Execution Needs Hardening
 

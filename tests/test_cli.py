@@ -10,7 +10,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from test_runner.catalog import CatalogDocument, CatalogEntry, CatalogExecutionType
+from test_runner.catalog import (
+    CatalogDocument,
+    CatalogEntry,
+    CatalogExecutionType,
+    CatalogRepository,
+)
 from test_runner.cli import (
     InputValidationError,
     build_parser,
@@ -441,3 +446,58 @@ class TestInteractiveMode:
 
         assert code == 0
         fake_hub.run.assert_awaited_once_with("run tests")
+
+    @pytest.mark.asyncio
+    async def test_interactive_unknown_request_can_register_and_rerun_saved_alias(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument().model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+
+        failed_state = RunState(request="run lt test", phase=RunPhase.FAILED)
+        failed_state.errors.append("Request did not match any cataloged test definition.")
+        success_state = RunState(request="run lt", phase=RunPhase.COMPLETE)
+        fake_hub = SimpleNamespace(
+            run=AsyncMock(side_effect=[failed_state, success_state])
+        )
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            lambda config, args: fake_hub,
+        )
+
+        inputs = iter([
+            "run lt test",
+            "y",
+            "lt",
+            "python",
+            "scripts/local_smoke.py",
+            "",
+            "",
+            "--quick",
+            "lt test, local smoke",
+            "",
+            "",
+            "y",
+            "y",
+            "quit",
+        ])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+        code = await async_main(["-i"])
+
+        assert code == 0
+        assert fake_hub.run.await_args_list[0].args == ("run lt test",)
+        assert fake_hub.run.await_args_list[1].args == ("run lt",)
+
+        document = CatalogRepository(catalog_path).load_document()
+        assert len(document.entries) == 1
+        assert document.entries[0].alias == "lt"
+        assert document.entries[0].target == "scripts/local_smoke.py"
+        assert document.entries[0].args == ["--quick"]

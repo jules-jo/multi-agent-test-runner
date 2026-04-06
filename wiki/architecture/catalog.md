@@ -106,6 +106,23 @@ The catalog is the execution authority. LLM-based parsing may help interpret the
 
 ## Current Gaps
 
-- there is no conversational flow yet for teaching a new test and persisting it safely
+- the current teaching flow is a first-pass interactive CLI dialogue, not a richer multi-turn chatbot/session feature
 - remote host lifecycle is still thin: no preflight connectivity checks, artifact transfer, or richer SSH/session management yet
 - the default shipped catalog is intentionally empty, so the product still needs a user-facing flow for populating real runnable definitions
+
+## Teaching Flow
+
+The interactive CLI now includes a deterministic first-pass registration flow:
+
+1. user issues a request that does not match any saved alias
+2. the CLI offers to register a new catalog entry
+3. the user confirms alias, execution type, target path, system alias, and optional metadata
+4. if the referenced system does not exist yet, the CLI collects a minimal `local` or `ssh` system definition
+5. the entry is saved into the catalog
+6. the CLI can optionally rerun the new saved alias immediately
+
+Current limitations:
+
+- the prompts are form-like rather than natural-language extraction
+- there is no edit/delete/catalog-management flow yet
+- there is no wiki page generation tied to catalog teaching yet

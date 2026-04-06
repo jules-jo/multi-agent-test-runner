@@ -36,6 +36,7 @@ Interactive mode is still task-oriented, not general chat-oriented, but it now h
 - greetings like `hello` are answered locally
 - help-style prompts like `help` or `what can you do` print usage guidance locally
 - actual test requests continue through the orchestrator path
+- when a request fails because no saved catalog alias matches, the CLI can now offer an interactive registration flow that collects entry details, persists them to the catalog, and optionally reruns the saved alias immediately
 
 ## Operational Detail
 

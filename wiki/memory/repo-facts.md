@@ -168,6 +168,14 @@
 - Source: `registry/catalog.json`
 - Last verified: 2026-04-06
 
+## Interactive Catalog Teaching
+
+- Fact: Interactive CLI mode now offers a first-pass catalog teaching workflow when a request fails because no saved alias matches. The user can confirm a new entry, optionally create a new `local` or `ssh` system, and then rerun the new alias immediately.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/cli.py` and `tests/test_cli.py`
+- Last verified: 2026-04-06
+
 ## Catalog Execution Types
 
 - Fact: The current machine-readable catalog supports saved `python_script` and `executable` definitions, and catalog mode ignores ad hoc extra args so execution stays bounded to the saved definition.

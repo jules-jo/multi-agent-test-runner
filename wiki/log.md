@@ -41,5 +41,6 @@
 - Extended the catalog schema to include named execution systems, added a repo-local example catalog file, and documented that non-local systems currently fail closed until remote execution is implemented.
 - Implemented `SSHTarget`, moved catalog transport choice to execution time, and recorded that remote catalog entries now resolve per-command through saved SSH system metadata.
 - Made `registry/catalog.json` the repo-local default catalog path, added an explicit empty-string opt-out for tests and legacy flows, and documented that the shipped default catalog is intentionally empty.
+- Added a first-pass interactive catalog teaching flow in the CLI so unknown requests can be turned into saved catalog entries and optionally rerun immediately.
 - Added a run note for cloning and project-scoped setup of `oh-my-codex`, including verification output and remaining host dependency gaps (`cargo`, `tmux`).
 - Extended the `oh-my-codex` run note with the standalone global OMX install, PATH location, and final global verification result.

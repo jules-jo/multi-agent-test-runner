@@ -7,6 +7,7 @@ import pytest
 from test_runner.agents.parser import ParsedTestRequest, TestFramework, TestIntent
 from test_runner.catalog import (
     CatalogRegistry,
+    CatalogRepository,
     CatalogDocument,
     CatalogEntry,
     CatalogExecutionType,
@@ -155,6 +156,49 @@ class TestCatalogRegistryMatching:
 
         assert match.status == CatalogMatchStatus.AMBIGUOUS
         assert "clarification" in match.message
+
+
+class TestCatalogRepositoryPersistence:
+    def test_add_system_and_entry_persists_to_disk(self, tmp_path) -> None:
+        path = tmp_path / "catalog.json"
+        repo = CatalogRepository(path)
+        repo.save_document(CatalogDocument())
+
+        repo.add_system(
+            CatalogSystem(
+                alias="lab-a",
+                transport=CatalogSystemTransport.SSH,
+                hostname="lab-a.internal.example",
+                username="runner",
+            )
+        )
+        repo.add_entry(
+            CatalogEntry(
+                alias="device-check",
+                execution_type=CatalogExecutionType.EXECUTABLE,
+                target="./bin/device-check",
+                system="lab-a",
+            )
+        )
+
+        loaded = CatalogRepository(path).load_document()
+        assert loaded.entries[0].alias == "device-check"
+        assert loaded.systems[0].alias == "lab-a"
+
+    def test_add_entry_rejects_unknown_system(self, tmp_path) -> None:
+        path = tmp_path / "catalog.json"
+        repo = CatalogRepository(path)
+        repo.save_document(CatalogDocument())
+
+        with pytest.raises(ValueError, match="unknown system"):
+            repo.add_entry(
+                CatalogEntry(
+                    alias="device-check",
+                    execution_type=CatalogExecutionType.EXECUTABLE,
+                    target="./bin/device-check",
+                    system="lab-a",
+                )
+            )
 
 
 class TestCatalogRegistryTranslation:
