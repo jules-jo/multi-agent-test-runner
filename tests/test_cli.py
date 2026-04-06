@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import os
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -15,6 +17,7 @@ from test_runner.cli import (
     async_main,
     interactive_loop_async,
     _resolve_request,
+    _build_default_command_env,
     MIN_REQUEST_LENGTH,
     MAX_REQUEST_LENGTH,
     EXIT_COMMANDS,
@@ -179,6 +182,37 @@ class TestResolveRequest:
         monkeypatch.setattr("sys.stdin", fake_stdin)
         result = _resolve_request(args)
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _build_default_command_env
+# ---------------------------------------------------------------------------
+
+
+class TestBuildDefaultCommandEnv:
+    def test_non_local_target_returns_empty(self):
+        assert _build_default_command_env("docker") == {}
+
+    def test_local_target_includes_repo_venv_scripts_on_windows_layout(
+        self, monkeypatch, tmp_path
+    ):
+        exec_dir = tmp_path / "host-python"
+        exec_dir.mkdir()
+        fake_python = exec_dir / "python.exe"
+        fake_python.write_text("")
+
+        scripts_dir = tmp_path / ".venv" / "Scripts"
+        scripts_dir.mkdir(parents=True)
+
+        monkeypatch.setattr(sys, "executable", str(fake_python))
+        monkeypatch.setenv("PATH", "existing-path")
+
+        env = _build_default_command_env("local", working_dir=str(tmp_path))
+
+        assert "PATH" in env
+        parts = env["PATH"].split(os.pathsep)
+        assert parts[0] == str(exec_dir)
+        assert str(scripts_dir) in parts[:2]
 
 
 # ---------------------------------------------------------------------------

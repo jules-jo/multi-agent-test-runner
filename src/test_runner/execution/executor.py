@@ -292,6 +292,14 @@ class TaskExecutor:
 
             record.record_attempt(result)
 
+            will_retry = (
+                not result.success
+                and self._policy.should_retry(result)
+                and not record.budget_exhausted
+            )
+            result.metadata["will_retry"] = will_retry
+            result.metadata["is_final_attempt"] = not will_retry
+
             # Notify callback (for reporter streaming)
             if self._on_attempt:
                 try:

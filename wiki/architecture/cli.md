@@ -39,6 +39,6 @@ Interactive mode is still task-oriented, not general chat-oriented, but it now h
 
 ## Operational Detail
 
-For local execution, the CLI prepends the active interpreter's `bin` directory and the repo `.venv/bin` directory to `PATH`. This allows translated commands such as `pytest ...` to resolve correctly when the CLI itself is launched through the project virtualenv.
+For local execution, the CLI prepends the active interpreter directory and the repo virtualenv script directory to `PATH`. On Windows that means `.venv/Scripts`; on Unix-like systems that means `.venv/bin`. This allows translated commands such as `pytest ...` to resolve correctly when the CLI itself is launched outside the repo virtualenv.
 
 In redirected or piped sessions, prompt text may interleave slightly with rich console output because `input()` writes prompts to stdout while the rich console writes to stderr.

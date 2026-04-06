@@ -421,10 +421,12 @@ def _build_default_command_env(
     if target_name != "local":
         return {}
 
+    project_venv = Path(working_dir or Path.cwd()) / ".venv"
     candidates: list[str] = []
     for candidate in (
         Path(sys.executable).resolve().parent,
-        Path(working_dir or Path.cwd()) / ".venv" / "bin",
+        project_venv / "Scripts",
+        project_venv / "bin",
     ):
         candidate_str = str(candidate)
         if candidate.exists() and candidate_str not in candidates:

@@ -23,3 +23,9 @@
 - Verified an interactive CLI smoke run with `printf 'hello\nhelp\nrun pytest tests/test_cli.py\nquit\n' | ./.venv/bin/python -m test_runner -i`.
 - Re-ran the full suite successfully after front-door handling: `2122 passed, 54 warnings`.
 - Checked for a real Dataiku Mesh validation path and found no live backend configuration in the current workspace yet.
+- Updated the parser's OpenAI Agents SDK provider to use Chat Completions mode (`use_responses=False`) for Dataiku Mesh compatibility.
+- Fixed local CLI PATH injection to support Windows `.venv/Scripts` in addition to Unix-like `.venv/bin`.
+- Corrected reporter fallback behavior so retried infrastructure attempts are logged as retries instead of being counted as separate failed tests.
+- Improved summary wording so infrastructure-error-only runs are labeled as errored, not generically failed.
+- Treated `.env.example` placeholder values as unset and changed the generic model placeholder to `your-model-id` so copied stubs do not masquerade as valid LLM config.
+- Re-ran the full suite successfully after the Dataiku/Windows/reporting fixes: `2129 passed, 55 warnings`.

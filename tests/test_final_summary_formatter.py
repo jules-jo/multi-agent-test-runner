@@ -225,6 +225,19 @@ class TestPlainTextFormatterUnified:
         assert "Fix assertion in test_alpha" in output
         assert "Fix RuntimeError in test_beta" in output
 
+    def test_error_only_header_uses_errored_wording(self):
+        summary = _make_summary(
+            total=1,
+            passed=0,
+            failed=0,
+            errors=1,
+            failures=[_make_failure("test_beta", TestOutcome.ERROR, "RuntimeError: boom")],
+        )
+        fmt = PlainTextFormatter()
+        output = fmt.format(summary, SummaryRenderConfig())
+
+        assert "1 TEST(S) ERRORED out of 1" in output
+
     def test_no_fixes_section_when_none(self):
         """Fixes section absent when no fix proposals provided."""
         summary = _make_summary()

@@ -258,6 +258,13 @@ class TestParserInit:
         parser = NaturalLanguageParser(config)
         assert parser._agent.instructions == _PARSER_SYSTEM_PROMPT
 
+    def test_run_config_uses_chat_completions_provider(self, config):
+        parser = NaturalLanguageParser(config)
+        run_config = parser._make_run_config()
+
+        assert run_config.model_provider is not None
+        assert getattr(run_config.model_provider, "_use_responses", None) is False
+
 
 # ---------------------------------------------------------------------------
 # LLM-backed parse (mocked) tests

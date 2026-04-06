@@ -53,6 +53,11 @@ class TestResolveEnv:
         monkeypatch.delenv("B", raising=False)
         assert _resolve_env("A", "B", default="fallback") == "fallback"
 
+    def test_skips_placeholder_values(self, monkeypatch):
+        monkeypatch.setenv("A", "https://your-dataiku-instance.com/api/v1")
+        monkeypatch.setenv("B", "real-value")
+        assert _resolve_env("A", "B") == "real-value"
+
 
 # ---------------------------------------------------------------------------
 # Config.load – environment variable tests

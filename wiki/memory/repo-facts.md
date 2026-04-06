@@ -10,7 +10,7 @@
 
 ## Test Suite Status
 
-- Fact: The suite is fully passing, with 2122 passed tests and 54 warnings during the latest verification run.
+- Fact: The suite is fully passing, with 2129 passed tests and 55 warnings during the latest verification run.
 - Scope: runtime
 - Confidence: high
 - Source: `./.venv/bin/pytest -q`
@@ -58,7 +58,7 @@
 
 ## Local Virtualenv PATH Injection
 
-- Fact: Local CLI runs prepend the active virtualenv `bin` directory and repo `.venv/bin` to `PATH` so translated commands such as `pytest` resolve correctly.
+- Fact: Local CLI runs prepend the active interpreter directory and repo virtualenv script directory to `PATH`, using `.venv/Scripts` on Windows and `.venv/bin` on Unix-like systems, so translated commands such as `pytest` resolve correctly.
 - Scope: runtime
 - Confidence: high
 - Source: CLI smoke test and `src/test_runner/cli.py`
@@ -66,10 +66,26 @@
 
 ## Reporter Callback Wiring
 
-- Fact: The executor now reports task attempts to the reporter through the task-level callback path, which gives the reporter a fallback event even when raw output parsing finds no per-test events.
+- Fact: The executor reports task attempts to the reporter through the task-level callback path, but retried infrastructure attempts are now logged as retry events instead of being counted as separate failed tests.
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/orchestrator/hub.py` and CLI smoke test
+- Last verified: 2026-04-06
+
+## Dataiku Mesh Parser Compatibility
+
+- Fact: The parser's OpenAI Agents SDK provider must set `use_responses=False` for the current Dataiku Mesh OpenAI-compatible endpoint, because the endpoint supports Chat Completions but not the Responses API.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/agents/parser.py` and live validation findings
+- Last verified: 2026-04-06
+
+## Placeholder Env Safety
+
+- Fact: Placeholder values copied from `.env.example` are treated as unset, so a fresh stub `.env` does not enable LLM mode accidentally.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/config.py`, `.env.example`, and test suite behavior
 - Last verified: 2026-04-06
 
 ## Architecture Layering
@@ -106,7 +122,7 @@
 
 ## Current Mesh Config Availability
 
-- Fact: In the current workspace, no real Dataiku/OpenAI-compatible backend configuration is present yet; `.env` is absent and the `DATAIKU_*` and `LLM_*` environment variables are unset.
+- Fact: In the current workspace, `.env` exists only as a placeholder stub. Its example values are intentionally treated as unset until replaced with real backend credentials.
 - Scope: runtime
 - Confidence: high
 - Source: environment inspection and repo file inspection

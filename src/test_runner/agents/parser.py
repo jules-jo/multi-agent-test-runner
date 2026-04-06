@@ -208,6 +208,9 @@ class NaturalLanguageParser:
 
         provider = OpenAIProvider(
             openai_client=self._client,
+            # Dataiku Mesh exposes Chat Completions compatibility here, not
+            # the newer Responses API, so force the SDK onto the supported path.
+            use_responses=False,
         )
         return RunConfig(model_provider=provider)
 

@@ -257,9 +257,19 @@ class CLIStreamingReporter(CLIReporterBase):
             status_line = Text(" ✓ All tests passed!", style="bold green")
         elif total == 0:
             status_line = Text(" ⚠ No tests were executed", style="bold yellow")
+        elif failed and errors:
+            status_line = Text(
+                f" ✗ {failed + errors} test(s) failed or errored",
+                style="bold red",
+            )
+        elif errors:
+            status_line = Text(
+                f" ✗ {errors} test(s) errored",
+                style="bold red",
+            )
         else:
             status_line = Text(
-                f" ✗ {failed + errors} test(s) failed", style="bold red"
+                f" ✗ {failed} test(s) failed", style="bold red"
             )
         self._console.print(status_line)
 

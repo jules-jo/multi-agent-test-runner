@@ -421,9 +421,22 @@ class ReporterAgent(BaseSubAgent):
         framework = record.command.framework.value if hasattr(
             record.command, "framework"
         ) else "generic"
+        will_retry = bool(result.metadata.get("will_retry"))
 
         # First, try to parse individual test results from stdout
         events = await self.process_output(result.stdout, framework)
+
+        if will_retry and not events:
+            await self._emit_event(
+                RunEvent(
+                    event_type=EventType.LOG,
+                    message=(
+                        f"Task {task_id} attempt {result.attempt}: "
+                        f"{result.status.value}; retrying"
+                    ),
+                )
+            )
+            return
 
         # If no individual results were parsed, emit a single summary event
         # based on the execution result status
@@ -448,6 +461,8 @@ class ReporterAgent(BaseSubAgent):
         result: ExecutionResult,
     ) -> None:
         """Sync fallback when no event loop is available."""
+        if result.metadata.get("will_retry"):
+            return
         status = _EXEC_TO_TEST_STATUS.get(result.status, TestStatus.ERROR)
         event = TestResultEvent(
             test_name=record.command.display or task_id,

@@ -25,7 +25,7 @@ This repository is a Python project named `multi-agent-test-runner`. Its goal is
 
 - Date: 2026-04-06
 - Command: `./.venv/bin/pytest -q`
-- Result: `2122 passed, 54 warnings`
+- Result: `2129 passed, 55 warnings`
 
 ## Recent Implementation Notes
 
@@ -35,6 +35,10 @@ This repository is a Python project named `multi-agent-test-runner`. Its goal is
 - Reporter summaries now receive task-level execution results through the executor callback path, which fixes the previous `0 total` summary problem for runs whose raw output did not yield per-test parse events.
 - Terminal interactive mode now reuses the same request-handling path as one-shot mode instead of the placeholder REPL.
 - Interactive mode now handles obvious greetings and help-style prompts locally instead of routing them into the test parser.
+- The parser's Agents SDK provider is now forced onto Chat Completions mode (`use_responses=False`) because the Dataiku Mesh OpenAI-compatible endpoint used here supports chat completions but not the Responses API.
+- Local CLI PATH injection is now cross-platform: it prepends the active interpreter directory plus repo `.venv/Scripts` on Windows and `.venv/bin` on Unix-like systems.
+- Reporter fallback events no longer count retried infrastructure attempts as separate failed tests; intermediate retried attempts are emitted as log events instead.
+- Placeholder values copied from `.env.example` are now treated as unset, so a fresh stub `.env` no longer masquerades as a valid LLM configuration.
 
 ## Current Known Gaps
 

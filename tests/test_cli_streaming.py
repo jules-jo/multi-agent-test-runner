@@ -267,6 +267,15 @@ class TestRunLifecycle:
         assert "2 failed" in output
 
     @pytest.mark.asyncio
+    async def test_on_run_end_with_errors_only(self):
+        reporter, buf = _make_reporter()
+        summary = {"total": 1, "passed": 0, "failed": 0, "errors": 1, "skipped": 0, "duration": 0.2, "all_passed": False}
+        await reporter.on_run_end(summary)
+        output = buf.getvalue()
+        assert "1 test(s) errored" in output
+        assert "1 errors" in output
+
+    @pytest.mark.asyncio
     async def test_on_run_end_no_tests(self):
         reporter, buf = _make_reporter()
         summary = {"total": 0, "passed": 0, "failed": 0, "errors": 0, "skipped": 0, "duration": 0.0, "all_passed": False}

@@ -21,6 +21,14 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
+_PLACEHOLDER_ENV_VALUES = frozenset(
+    {
+        "https://your-dataiku-instance.com/api/v1",
+        "your-api-key-here",
+        "your-model-id",
+    }
+)
+
 
 class AutonomyPolicy(str, Enum):
     """Configurable autonomy levels for agent behavior."""
@@ -34,11 +42,13 @@ def _resolve_env(*names: str, default: str = "") -> str:
     """Return the first non-empty value found across *names* in ``os.environ``.
 
     This allows Dataiku-specific var names to take priority while falling back
-    to generic LLM var names, and finally to *default*.
+    to generic LLM var names, and finally to *default*. Example placeholder
+    values from ``.env.example`` are treated as unset so copied stubs do not
+    masquerade as valid live credentials.
     """
     for name in names:
         value = os.environ.get(name, "")
-        if value:
+        if value and value not in _PLACEHOLDER_ENV_VALUES:
             return value
     return default
 

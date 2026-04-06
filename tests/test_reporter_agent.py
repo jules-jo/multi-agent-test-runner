@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from test_runner.agents.base import AgentRole
+from test_runner.agents.parser import TestFramework
 from test_runner.agents.reporter.agent import (
     ReporterAgent,
     RunStatistics,
@@ -21,6 +22,7 @@ from test_runner.agents.reporter.output_parser import (
     PytestOutputParser,
 )
 from test_runner.execution.command_translator import TestCommand
+from test_runner.execution.executor import TaskAttemptRecord
 from test_runner.execution.targets import ExecutionResult, ExecutionStatus
 from test_runner.reporting.base import ReporterBase, StreamEvent
 from test_runner.reporting.events import (
@@ -318,6 +320,57 @@ class TestReporterAgent:
     def test_no_tools(self):
         agent = ReporterAgent()
         assert agent.get_tools() == []
+
+    @pytest.mark.asyncio
+    async def test_retrying_infra_attempt_does_not_count_as_failed_test(
+        self, channel: FakeChannel
+    ):
+        agent = ReporterAgent()
+        agent.add_channel(channel)
+        await agent.start_run()
+
+        command = TestCommand(
+            command=["pytest", "tests/test_cli.py"],
+            display="pytest tests/test_cli.py",
+            framework=TestFramework.PYTEST,
+        )
+        record = TaskAttemptRecord(task_id="task-0001", command=command, max_attempts=3)
+
+        retry_result = ExecutionResult(
+            status=ExecutionStatus.ERROR,
+            exit_code=-1,
+            stdout="",
+            stderr="OS error: [WinError 5] Access is denied",
+            duration_seconds=0.05,
+            command_display=command.display,
+            metadata={"will_retry": True},
+        )
+        final_result = ExecutionResult(
+            status=ExecutionStatus.ERROR,
+            exit_code=-1,
+            stdout="",
+            stderr="OS error: [WinError 5] Access is denied",
+            duration_seconds=0.05,
+            command_display=command.display,
+            metadata={"is_final_attempt": True},
+        )
+
+        record.record_attempt(retry_result)
+        await agent._handle_execution_result("task-0001", record, retry_result)
+        record.record_attempt(final_result)
+        await agent._handle_execution_result("task-0001", record, final_result)
+
+        summary = await agent.end_run()
+
+        assert summary["errors"] == 1
+        assert summary["total"] == 1
+        test_events = [e for e in channel.events if isinstance(e, TestResultEvent)]
+        assert len(test_events) == 1
+        log_events = [
+            e for e in channel.events
+            if isinstance(e, RunEvent) and e.event_type == EventType.LOG
+        ]
+        assert any("retrying" in e.message for e in log_events)
 
     def test_add_remove_channel(self, channel: FakeChannel):
         agent = ReporterAgent()

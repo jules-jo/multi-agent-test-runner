@@ -225,8 +225,14 @@ class PlainTextFormatter:
             return "  WARNING: No tests were executed"
         if summary.success:
             return f"  ALL {summary.total} TESTS PASSED"
-        count = summary.failure_count
-        return f"  {count} TEST(S) FAILED out of {summary.total}"
+        if summary.failed and summary.errors:
+            return (
+                f"  {summary.failure_count} TEST(S) FAILED OR ERRORED "
+                f"out of {summary.total}"
+            )
+        if summary.errors:
+            return f"  {summary.errors} TEST(S) ERRORED out of {summary.total}"
+        return f"  {summary.failed} TEST(S) FAILED out of {summary.total}"
 
     def _render_counts(
         self,
