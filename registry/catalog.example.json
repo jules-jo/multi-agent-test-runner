@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "systems": [
+    {
+      "alias": "local",
+      "description": "Current local development machine",
+      "transport": "local",
+      "working_directory": ".",
+      "env": {
+        "TEST_ENV": "dev"
+      }
+    },
+    {
+      "alias": "lab-a",
+      "description": "Remote hardware validation host",
+      "transport": "ssh",
+      "hostname": "lab-a.internal.example",
+      "username": "runner",
+      "port": 22,
+      "ssh_config_host": "lab-a",
+      "credential_ref": "ssh-config:lab-a",
+      "working_directory": "/opt/test-suite"
+    }
+  ],
+  "entries": [
+    {
+      "alias": "lt",
+      "description": "Run local smoke tests",
+      "execution_type": "python_script",
+      "target": "scripts/local_smoke.py",
+      "system": "local",
+      "args": [
+        "--quick"
+      ],
+      "keywords": [
+        "local smoke",
+        "smoke suite"
+      ],
+      "timeout": 90
+    },
+    {
+      "alias": "device-check",
+      "description": "Run hardware validation binary",
+      "execution_type": "executable",
+      "target": "./bin/device-check",
+      "system": "lab-a",
+      "keywords": [
+        "hardware validation",
+        "device validation"
+      ],
+      "timeout": 300
+    }
+  ]
+}

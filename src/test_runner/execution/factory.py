@@ -32,6 +32,8 @@ from test_runner.execution.targets import (
     ExecutionTarget,
     LocalTarget,
     RemoteCITarget,
+    SSHConfig,
+    SSHTarget,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,6 +115,16 @@ def _create_remote_ci(**config: Any) -> ExecutionTarget:
     ci_url = config.get("ci_url", "")
     api_token = config.get("api_token", "")
     return RemoteCITarget(ci_url, api_token=api_token)
+
+
+def _create_ssh(**config: Any) -> ExecutionTarget:
+    """Create an :class:`SSHTarget` from config."""
+    ssh_cfg_keys = {
+        "alias", "hostname", "username", "port",
+        "ssh_config_host", "credential_ref", "extra_args", "batch_mode",
+    }
+    ssh_kwargs = {k: v for k, v in config.items() if k in ssh_cfg_keys}
+    return SSHTarget(SSHConfig(**ssh_kwargs))
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +339,19 @@ class ExecutionTargetFactory:
             config_schema={
                 "ci_url": "URL of the remote CI system",
                 "api_token": "API authentication token",
+            },
+        )
+        self.register(
+            "ssh",
+            _create_ssh,
+            description="Execute commands on a remote host through ssh",
+            config_schema={
+                "alias": "Saved system alias for reporting",
+                "hostname": "Remote host name or address",
+                "username": "Remote ssh username",
+                "port": "Optional ssh port",
+                "ssh_config_host": "Optional host alias from ~/.ssh/config",
+                "credential_ref": "Pointer to external credentials or ssh config",
             },
         )
 

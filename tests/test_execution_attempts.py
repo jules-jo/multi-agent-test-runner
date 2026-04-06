@@ -19,6 +19,7 @@ from test_runner.execution.targets import (
     ExecutionResult,
     ExecutionStatus,
     ExecutionTarget,
+    SSHTarget,
 )
 
 
@@ -188,6 +189,8 @@ class TestTaskAttemptRecord:
         assert summary["max_attempts"] == 3
         assert summary["final_status"] == "passed"
         assert not summary["budget_exhausted"]
+        assert summary["stdout"] == "output"
+        assert summary["stderr"] == ""
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +363,37 @@ class TestTaskExecutor:
         assert callback_calls[0][2] == "error"
         assert callback_calls[1][1] == 2  # second attempt
         assert callback_calls[1][2] == "passed"
+
+    @pytest.mark.asyncio
+    async def test_catalog_ssh_metadata_creates_ssh_target(self, monkeypatch):
+        captured: list[str] = []
+
+        async def fake_execute(self, command, *, working_directory="", env=None, timeout=None):
+            captured.append(self.name)
+            return _make_result(ExecutionStatus.PASSED)
+
+        monkeypatch.setattr(SSHTarget, "execute", fake_execute)
+
+        executor = TaskExecutor(policy=ExecutionPolicy.default())
+        command = TestCommand(
+            command=["./bin/device-check"],
+            display="./bin/device-check",
+            framework=TestFramework.SCRIPT,
+            metadata={
+                "catalog_system_transport": "ssh",
+                "catalog_system_config": {
+                    "alias": "lab-a",
+                    "hostname": "lab-a.internal.example",
+                    "username": "runner",
+                },
+            },
+        )
+
+        records = await executor.execute_batch([command])
+
+        assert len(records) == 1
+        assert records[0].final_status == ExecutionStatus.PASSED
+        assert captured == ["ssh:lab-a"]
 
 
 # ---------------------------------------------------------------------------

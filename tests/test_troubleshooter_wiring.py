@@ -213,6 +213,19 @@ class TestExtractFailureDetails:
         assert d.error_type == "failed"
         assert d.stderr == "AssertionError: expected True"
 
+    def test_failed_result_with_top_level_stderr_is_preserved(self):
+        record = _make_task_attempt_record(
+            status=ExecutionStatus.ERROR,
+            stderr="OS error: [WinError 5] Access is denied",
+            exit_code=-1,
+        )
+        state = RunState(execution_results=[record.to_summary()])
+
+        details = OrchestratorHub._extract_failure_details(state)
+
+        assert len(details) == 1
+        assert details[0].stderr == "OS error: [WinError 5] Access is denied"
+
     def test_error_result_extracted(self):
         state = RunState(execution_results=[
             _make_execution_result_dict(final_status="error", exit_code=2),

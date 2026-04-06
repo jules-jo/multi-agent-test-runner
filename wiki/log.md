@@ -29,3 +29,16 @@
 - Improved summary wording so infrastructure-error-only runs are labeled as errored, not generically failed.
 - Treated `.env.example` placeholder values as unset and changed the generic model placeholder to `your-model-id` so copied stubs do not masquerade as valid LLM config.
 - Re-ran the full suite successfully after the Dataiku/Windows/reporting fixes: `2129 passed, 55 warnings`.
+- Analyzed a Windows run log and confirmed Dataiku Mesh parsing succeeds while local process launch fails before pytest starts.
+- Updated local execution to normalize bare `pytest` commands to `python -m pytest`.
+- Updated serialized task summaries to include the last attempt's stdout/stderr so launch errors retain context during troubleshooting.
+- Recorded the product-direction shift toward a chat-based test operations agent backed by a controlled test catalog.
+- Recorded the desired closed-world rule that agents should not run tests that are not saved in the catalog or wiki-backed registry.
+- Recorded that new test definitions should be learned through confirmed conversation and then promoted into durable memory.
+- Added a deterministic JSON-backed catalog registry for saved aliases and keywords, with immediate support for `python_script` and `executable` definitions.
+- Wired intent resolution and orchestrator execution gating so catalog mode blocks unknown or ambiguous requests before execution when `TEST_CATALOG_PATH` is configured.
+- Updated CLI dry-run behavior so catalog clarification failures return a non-zero result instead of being treated as runnable.
+- Extended the catalog schema to include named execution systems, added a repo-local example catalog file, and documented that non-local systems currently fail closed until remote execution is implemented.
+- Implemented `SSHTarget`, moved catalog transport choice to execution time, and recorded that remote catalog entries now resolve per-command through saved SSH system metadata.
+- Added a run note for cloning and project-scoped setup of `oh-my-codex`, including verification output and remaining host dependency gaps (`cargo`, `tmux`).
+- Extended the `oh-my-codex` run note with the standalone global OMX install, PATH location, and final global verification result.

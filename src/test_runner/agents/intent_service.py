@@ -24,6 +24,7 @@ from test_runner.agents.parser import (
     TestFramework,
     TestIntent,
 )
+from test_runner.catalog import CatalogRegistry
 from test_runner.config import Config
 from test_runner.execution.command_translator import (
     CommandTranslator,
@@ -142,11 +143,13 @@ class IntentParserService:
         parse_mode: ParseMode = ParseMode.AUTO,
         clarification_threshold: float = _DEFAULT_CLARIFICATION_THRESHOLD,
         command_translator: CommandTranslator | None = None,
+        catalog_registry: CatalogRegistry | None = None,
     ) -> None:
         self._config = config
         self._parse_mode = parse_mode
         self._clarification_threshold = clarification_threshold
         self._translator = command_translator or CommandTranslator()
+        self._catalog_registry = catalog_registry or self._load_catalog_registry()
 
         # Only build the LLM-backed parser if we might need it
         self._llm_parser: NaturalLanguageParser | None = None
@@ -198,19 +201,18 @@ class IntentParserService:
         warnings.extend(parse_warnings)
 
         # --- Step 2: Translate ---
-        try:
-            translation = self._translator.translate(
-                parsed, timeout=timeout, env=env,
-            )
-            warnings.extend(translation.warnings)
-        except UnsupportedFrameworkError as exc:
-            raise IntentResolutionError(
-                f"Cannot translate: {exc}",
-                parsed_request=parsed,
-            ) from exc
+        translation, translation_needs_clarification = self._translate(
+            parsed,
+            timeout=timeout,
+            env=env,
+        )
+        warnings.extend(translation.warnings)
 
         # --- Step 3: Assess confidence ---
-        needs_clarification = parsed.confidence < self._clarification_threshold
+        needs_clarification = translation_needs_clarification or (
+            self._catalog_registry is None
+            and parsed.confidence < self._clarification_threshold
+        )
 
         if needs_clarification:
             logger.info(
@@ -254,18 +256,17 @@ class IntentParserService:
         parsed = NaturalLanguageParser.parse_offline(request)
         warnings: list[str] = []
 
-        try:
-            translation = self._translator.translate(
-                parsed, timeout=timeout, env=env,
-            )
-            warnings.extend(translation.warnings)
-        except UnsupportedFrameworkError as exc:
-            raise IntentResolutionError(
-                f"Cannot translate: {exc}",
-                parsed_request=parsed,
-            ) from exc
+        translation, translation_needs_clarification = self._translate(
+            parsed,
+            timeout=timeout,
+            env=env,
+        )
+        warnings.extend(translation.warnings)
 
-        needs_clarification = parsed.confidence < self._clarification_threshold
+        needs_clarification = translation_needs_clarification or (
+            self._catalog_registry is None
+            and parsed.confidence < self._clarification_threshold
+        )
 
         return IntentResolution(
             parsed_request=parsed,
@@ -289,6 +290,11 @@ class IntentParserService:
     def clarification_threshold(self) -> float:
         """Confidence threshold below which clarification is flagged."""
         return self._clarification_threshold
+
+    @property
+    def catalog_registry(self) -> CatalogRegistry | None:
+        """Loaded catalog registry, if closed-world mode is enabled."""
+        return self._catalog_registry
 
     # -- Internal ------------------------------------------------------------
 
@@ -340,6 +346,44 @@ class IntentParserService:
             and self._config.api_key
             and self._config.model_id
         )
+
+    def _load_catalog_registry(self) -> CatalogRegistry | None:
+        """Load the configured test catalog, if any."""
+        if not self._config.test_catalog_path:
+            return None
+        return CatalogRegistry.from_path(self._config.test_catalog_path)
+
+    def _translate(
+        self,
+        parsed: ParsedTestRequest,
+        *,
+        timeout: int | None = None,
+        env: dict[str, str] | None = None,
+    ) -> tuple[TranslationResult, bool]:
+        """Translate a parsed request into commands.
+
+        Returns ``(translation, needs_clarification)``.
+        """
+        if self._catalog_registry is not None:
+            match = self._catalog_registry.match_request(parsed.raw_request)
+            translation = self._catalog_registry.translate_match(
+                match,
+                parsed,
+                timeout=timeout,
+                env=env,
+            )
+            return translation, not bool(translation.commands)
+
+        try:
+            translation = self._translator.translate(
+                parsed, timeout=timeout, env=env,
+            )
+        except UnsupportedFrameworkError as exc:
+            raise IntentResolutionError(
+                f"Cannot translate: {exc}",
+                parsed_request=parsed,
+            ) from exc
+        return translation, False
 
 
 # ---------------------------------------------------------------------------

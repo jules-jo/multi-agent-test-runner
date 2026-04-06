@@ -510,10 +510,18 @@ def _run_dry_run(
             "[dim]Dry run uses offline intent resolution; full runs can use the configured LLM backend.[/dim]"
         )
 
+    if not resolution.commands:
+        console.print("[yellow]Dry run needs clarification before execution.[/yellow]")
+        for warning in resolution.warnings:
+            console.print(f"[yellow]- {warning}[/yellow]")
+        return 1
+
     console.print(
         f"[green][accepted][/green] Dry run parsed as "
         f"{resolution.intent.value} / {resolution.framework.value}"
     )
+    for warning in resolution.warnings:
+        console.print(f"[yellow]Warning:[/yellow] {warning}")
     for command in resolution.commands:
         console.print(f"[dim]Command: {command.display}[/dim]")
     return 0

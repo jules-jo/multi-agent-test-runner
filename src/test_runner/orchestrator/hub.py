@@ -260,6 +260,21 @@ class OrchestratorHub:
             logger.info("Phase: %s", state.phase.value)
             resolution = await self._resolve_intent(state, request)
 
+            if not resolution.commands:
+                logger.warning(
+                    "No runnable commands resolved for request %r; "
+                    "stopping before discovery/execution",
+                    request,
+                )
+                state.phase = RunPhase.FAILED
+                if resolution.warnings:
+                    state.errors.extend(resolution.warnings)
+                else:
+                    state.errors.append(
+                        "Request did not resolve to a runnable cataloged test."
+                    )
+                return state
+
             if resolution.needs_clarification:
                 logger.warning(
                     "Low confidence (%.2f) — orchestrator should request "
@@ -1100,7 +1115,23 @@ class OrchestratorHub:
         )
         if self._default_working_directory:
             translated_commands = [
-                replace(cmd, working_directory=self._default_working_directory)
+                replace(
+                    cmd,
+                    working_directory=(
+                        cmd.working_directory
+                        or (
+                            self._default_working_directory
+                            if str(
+                                cmd.metadata.get(
+                                    "catalog_system_transport",
+                                    "local",
+                                )
+                            ).lower()
+                            == "local"
+                            else ""
+                        )
+                    ),
+                )
                 for cmd in resolution.commands
             ]
             resolution.translation.commands[:] = translated_commands

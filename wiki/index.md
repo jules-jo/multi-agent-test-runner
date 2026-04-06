@@ -17,6 +17,7 @@ This wiki is the persistent knowledge layer for the `multi-agent-test-runner` re
 - [Orchestrator](/workspace/wiki/architecture/orchestrator.md)
 - [Agents](/workspace/wiki/architecture/agents.md)
 - [Intent Parsing](/workspace/wiki/architecture/intent-parsing.md)
+- [Catalog](/workspace/wiki/architecture/catalog.md)
 - [Execution](/workspace/wiki/architecture/execution.md)
 - [Reporting](/workspace/wiki/architecture/reporting.md)
 - [Autonomy](/workspace/wiki/architecture/autonomy.md)

@@ -19,6 +19,11 @@ from test_runner.agents.parser import (
     TestFramework,
     TestIntent,
 )
+from test_runner.catalog import (
+    CatalogRegistry,
+    CatalogEntry,
+    CatalogExecutionType,
+)
 from test_runner.config import Config
 from test_runner.execution.command_translator import (
     CommandTranslator,
@@ -74,6 +79,29 @@ def _make_parsed(
     )
 
 
+def _make_catalog_registry() -> CatalogRegistry:
+    return CatalogRegistry(
+        [
+            CatalogEntry(
+                alias="lt",
+                description="Local smoke tests",
+                execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                target="scripts/local_smoke.py",
+                args=["--quick"],
+                keywords=["local smoke"],
+                working_directory="/repo",
+            ),
+            CatalogEntry(
+                alias="device-check",
+                description="Binary validation",
+                execution_type=CatalogExecutionType.EXECUTABLE,
+                target="./bin/device-check",
+                keywords=["device validation"],
+            ),
+        ]
+    )
+
+
 # ---------------------------------------------------------------------------
 # Construction tests
 # ---------------------------------------------------------------------------
@@ -110,6 +138,15 @@ class TestServiceInit:
     def test_default_translator_created(self, config_no_llm):
         service = IntentParserService(config_no_llm, parse_mode=ParseMode.OFFLINE)
         assert isinstance(service.translator, CommandTranslator)
+
+    def test_catalog_registry_can_be_injected(self, config_no_llm):
+        registry = _make_catalog_registry()
+        service = IntentParserService(
+            config_no_llm,
+            parse_mode=ParseMode.OFFLINE,
+            catalog_registry=registry,
+        )
+        assert service.catalog_registry is registry
 
 
 # ---------------------------------------------------------------------------
@@ -203,6 +240,77 @@ class TestResolveOffline:
         cmd = result.commands[0]
         assert cmd.timeout == 60
         assert cmd.env == {"CI": "true"}
+
+    def test_catalog_match_builds_saved_python_script_command(self, config_no_llm):
+        service = IntentParserService(
+            config_no_llm,
+            parse_mode=ParseMode.OFFLINE,
+            catalog_registry=_make_catalog_registry(),
+        )
+
+        result = service.resolve_offline("run lt")
+
+        assert result.commands[0].command == [
+            "python", "scripts/local_smoke.py", "--quick"
+        ]
+        assert result.commands[0].working_directory == "/repo"
+        assert result.needs_clarification is False
+
+    def test_catalog_unknown_request_requires_clarification(self, config_no_llm):
+        service = IntentParserService(
+            config_no_llm,
+            parse_mode=ParseMode.OFFLINE,
+            catalog_registry=_make_catalog_registry(),
+        )
+
+        result = service.resolve_offline("run missing suite")
+
+        assert result.commands == []
+        assert result.needs_clarification is True
+        assert any("cataloged test definition" in warning for warning in result.warnings)
+
+    def test_catalog_ambiguous_request_requires_clarification(self, config_no_llm):
+        registry = CatalogRegistry(
+            [
+                CatalogEntry(
+                    alias="alpha",
+                    execution_type=CatalogExecutionType.EXECUTABLE,
+                    target="./alpha",
+                    keywords=["smoke"],
+                ),
+                CatalogEntry(
+                    alias="beta",
+                    execution_type=CatalogExecutionType.EXECUTABLE,
+                    target="./beta",
+                    keywords=["smoke"],
+                ),
+            ]
+        )
+        service = IntentParserService(
+            config_no_llm,
+            parse_mode=ParseMode.OFFLINE,
+            catalog_registry=registry,
+        )
+
+        result = service.resolve_offline("run smoke")
+
+        assert result.commands == []
+        assert result.needs_clarification is True
+        assert any("multiple catalog entries" in warning for warning in result.warnings)
+
+    def test_catalog_mode_ignores_low_parser_confidence_when_alias_matches(
+        self, config_no_llm
+    ):
+        service = IntentParserService(
+            config_no_llm,
+            parse_mode=ParseMode.OFFLINE,
+            clarification_threshold=0.95,
+            catalog_registry=_make_catalog_registry(),
+        )
+
+        result = service.resolve_offline("run lt")
+
+        assert result.needs_clarification is False
 
 
 # ---------------------------------------------------------------------------

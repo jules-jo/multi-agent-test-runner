@@ -22,6 +22,7 @@ from test_runner.execution.targets import (
     ExecutionStatus,
     ExecutionTarget,
     LocalTarget,
+    SSHTarget,
     TargetRegistry,
 )
 
@@ -166,6 +167,7 @@ class TaskAttemptRecord:
 
     def to_summary(self) -> dict[str, Any]:
         """Generate a summary dict for reporting."""
+        last = self.latest_result
         return {
             "task_id": self.task_id,
             "command": self.command.display,
@@ -175,6 +177,8 @@ class TaskAttemptRecord:
             "budget_exhausted": self.budget_exhausted,
             "final_status": self.final_status.value,
             "total_duration_seconds": self.total_duration,
+            "stdout": last.stdout if last else "",
+            "stderr": last.stderr if last else "",
             "attempt_details": [
                 {
                     "attempt": a.attempt,
@@ -238,6 +242,32 @@ class TaskExecutor:
     def _next_task_id(self) -> str:
         self._task_counter += 1
         return f"task-{self._task_counter:04d}"
+
+    def _resolve_command_target(
+        self,
+        command: TestCommand,
+        *,
+        target: ExecutionTarget | None,
+        target_name: str,
+    ) -> tuple[ExecutionTarget | None, str]:
+        """Resolve the effective execution target for one command."""
+        if target is not None or target_name != "local":
+            return target, target_name
+
+        metadata = command.metadata or {}
+        if str(metadata.get("catalog_system_transport", "")).lower() != "ssh":
+            return None, target_name
+
+        system_config = metadata.get("catalog_system_config")
+        if not isinstance(system_config, dict):
+            logger.warning(
+                "SSH catalog metadata missing system config for command %s; "
+                "falling back to local target",
+                command.display,
+            )
+            return None, target_name
+
+        return SSHTarget.from_metadata(system_config), "ssh"
 
     async def execute_task(
         self,
@@ -373,10 +403,15 @@ class TaskExecutor:
         """
         records: list[TaskAttemptRecord] = []
         for cmd in commands:
-            record = await self.execute_task(
+            resolved_target, resolved_target_name = self._resolve_command_target(
                 cmd,
                 target=target,
                 target_name=target_name,
+            )
+            record = await self.execute_task(
+                cmd,
+                target=resolved_target,
+                target_name=resolved_target_name,
             )
             records.append(record)
         return records

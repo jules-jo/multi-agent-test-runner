@@ -20,3 +20,6 @@ dist/
 
 # Local tool state
 .claude/
+.omx/
+wiki/.obsidian/
+full_log.txt

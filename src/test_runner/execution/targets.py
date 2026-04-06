@@ -9,6 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import re
+import shlex
+import sys
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -220,6 +224,17 @@ class ExecutionTarget(ABC):
 class LocalTarget(ExecutionTarget):
     """Executes commands on the local machine via subprocess."""
 
+    @staticmethod
+    def _normalize_command(command: list[str]) -> list[str]:
+        """Rewrite selected commands to use the active interpreter."""
+        if not command:
+            return command
+
+        executable = os.path.basename(command[0]).lower()
+        if executable in {"pytest", "pytest.exe", "py.test", "py.test.exe"}:
+            return [sys.executable, "-m", "pytest", *command[1:]]
+        return command
+
     @property
     def name(self) -> str:
         return "local"
@@ -232,15 +247,14 @@ class LocalTarget(ExecutionTarget):
         env: dict[str, str] | None = None,
         timeout: int | None = None,
     ) -> ExecutionResult:
-        import os
-
         cwd = working_directory or None
         merged_env = {**os.environ, **(env or {})}
         start = time.monotonic()
+        resolved_command = self._normalize_command(command)
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                *command,
+                *resolved_command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
@@ -286,7 +300,7 @@ class LocalTarget(ExecutionTarget):
                 status=ExecutionStatus.ERROR,
                 exit_code=-1,
                 stdout="",
-                stderr=f"Command not found: {command[0]}",
+                stderr=f"Command not found: {resolved_command[0]}",
                 duration_seconds=elapsed,
                 command_display=" ".join(command),
             )
@@ -314,14 +328,13 @@ class LocalTarget(ExecutionTarget):
         Yields lines as they arrive rather than waiting for completion.
         Stderr lines are prefixed with ``[stderr]``.
         """
-        import os
-
         cwd = working_directory or None
         merged_env = {**os.environ, **(env or {})}
+        resolved_command = self._normalize_command(command)
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                *command,
+                *resolved_command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
@@ -364,6 +377,164 @@ class LocalTarget(ExecutionTarget):
             proc.kill()
             await proc.wait()
             yield f"[timeout] Command timed out after {timeout}s"
+
+
+@dataclass(frozen=True)
+class SSHConfig:
+    """Configuration for SSH execution."""
+
+    alias: str = "ssh"
+    hostname: str = ""
+    username: str = ""
+    port: int | None = None
+    ssh_config_host: str = ""
+    credential_ref: str = ""
+    extra_args: list[str] = field(default_factory=list)
+    batch_mode: bool = True
+
+    def __post_init__(self) -> None:
+        if not (self.ssh_config_host or self.hostname):
+            raise ValueError("SSHConfig requires ssh_config_host or hostname")
+        if self.port is not None and self.port < 1:
+            raise ValueError("port must be >= 1")
+
+
+class SSHTarget(ExecutionTarget):
+    """Executes commands on a remote system through the local ssh client."""
+
+    _ENV_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+    def __init__(self, config: SSHConfig) -> None:
+        self._config = config
+        self._local = LocalTarget()
+
+    @classmethod
+    def from_metadata(cls, metadata: dict[str, Any]) -> "SSHTarget":
+        """Build a target from catalog system metadata."""
+        return cls(
+            SSHConfig(
+                alias=str(metadata.get("alias") or "ssh"),
+                hostname=str(metadata.get("hostname") or ""),
+                username=str(metadata.get("username") or ""),
+                port=metadata.get("port"),
+                ssh_config_host=str(metadata.get("ssh_config_host") or ""),
+                credential_ref=str(metadata.get("credential_ref") or ""),
+            )
+        )
+
+    @property
+    def name(self) -> str:
+        return f"ssh:{self._config.alias}"
+
+    @property
+    def destination(self) -> str:
+        if self._config.ssh_config_host:
+            return self._config.ssh_config_host
+        if self._config.username:
+            return f"{self._config.username}@{self._config.hostname}"
+        return self._config.hostname
+
+    def _build_remote_command(
+        self,
+        command: list[str],
+        *,
+        working_directory: str = "",
+        env: dict[str, str] | None = None,
+    ) -> str:
+        remote_command = shlex.join(command)
+
+        exported_pairs = [
+            f"{key}={shlex.quote(value)}"
+            for key, value in (env or {}).items()
+            if self._ENV_KEY_PATTERN.match(key)
+        ]
+        if exported_pairs:
+            remote_command = f"env {' '.join(exported_pairs)} {remote_command}"
+
+        if working_directory:
+            remote_command = (
+                f"cd {shlex.quote(working_directory)} && {remote_command}"
+            )
+
+        return remote_command
+
+    def _build_ssh_command(
+        self,
+        command: list[str],
+        *,
+        working_directory: str = "",
+        env: dict[str, str] | None = None,
+    ) -> list[str]:
+        ssh_command = ["ssh"]
+        if self._config.batch_mode:
+            ssh_command.extend(["-o", "BatchMode=yes"])
+        if self._config.port is not None and not self._config.ssh_config_host:
+            ssh_command.extend(["-p", str(self._config.port)])
+        ssh_command.extend(self._config.extra_args)
+        ssh_command.append(self.destination)
+        ssh_command.append(
+            self._build_remote_command(
+                command,
+                working_directory=working_directory,
+                env=env,
+            )
+        )
+        return ssh_command
+
+    async def execute(
+        self,
+        command: list[str],
+        *,
+        working_directory: str = "",
+        env: dict[str, str] | None = None,
+        timeout: int | None = None,
+    ) -> ExecutionResult:
+        ssh_command = self._build_ssh_command(
+            command,
+            working_directory=working_directory,
+            env=env,
+        )
+        result = await self._local.execute(ssh_command, timeout=timeout)
+        metadata = dict(result.metadata)
+        metadata.update(
+            {
+                "target": self.name,
+                "transport": "ssh",
+                "ssh_destination": self.destination,
+                "ssh_command": " ".join(ssh_command),
+                "credential_ref": self._config.credential_ref,
+            }
+        )
+        return ExecutionResult(
+            status=result.status,
+            exit_code=result.exit_code,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            duration_seconds=result.duration_seconds,
+            command_display=" ".join(command),
+            attempt=result.attempt,
+            metadata=metadata,
+        )
+
+    async def stream_execute(
+        self,
+        command: list[str],
+        *,
+        working_directory: str = "",
+        env: dict[str, str] | None = None,
+        timeout: int | None = None,
+    ) -> AsyncIterator[str]:
+        ssh_command = self._build_ssh_command(
+            command,
+            working_directory=working_directory,
+            env=env,
+        )
+        async for line in self._local.stream_execute(ssh_command, timeout=timeout):
+            yield line
+
+    async def health_check(self) -> bool:
+        result = await self._local.execute(["ssh", "-V"], timeout=10)
+        return result.success
 
 
 @dataclass

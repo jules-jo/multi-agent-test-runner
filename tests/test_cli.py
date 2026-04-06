@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from test_runner.catalog import CatalogDocument, CatalogEntry, CatalogExecutionType
 from test_runner.cli import (
     InputValidationError,
     build_parser,
@@ -232,6 +233,7 @@ class TestAsyncMain:
             "LLM_BASE_URL",
             "LLM_API_KEY",
             "LLM_MODEL",
+            "TEST_CATALOG_PATH",
         ):
             monkeypatch.delenv(key, raising=False)
 
@@ -249,6 +251,52 @@ class TestAsyncMain:
     async def test_dry_run_with_missing_config_still_works(self, monkeypatch):
         """Dry run does not need LLM config."""
         result = await async_main(["--dry-run", "run all unit tests"])
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_dry_run_catalog_mode_requires_saved_alias(
+        self, monkeypatch, tmp_path
+    ):
+        catalog_path = tmp_path / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("TEST_CATALOG_PATH", str(catalog_path))
+
+        result = await async_main(["--dry-run", "run missing suite"])
+
+        assert result == 1
+
+    @pytest.mark.asyncio
+    async def test_dry_run_catalog_mode_accepts_saved_alias(
+        self, monkeypatch, tmp_path
+    ):
+        catalog_path = tmp_path / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("TEST_CATALOG_PATH", str(catalog_path))
+
+        result = await async_main(["--dry-run", "run lt"])
+
         assert result == 0
 
     @pytest.mark.asyncio

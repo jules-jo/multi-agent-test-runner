@@ -73,6 +73,7 @@ class Config:
     # Execution defaults
     working_directory: str = field(default_factory=os.getcwd)
     timeout_seconds: int = 300
+    test_catalog_path: str = ""
 
     @classmethod
     def load(cls, env_file: Optional[str] = None) -> "Config":
@@ -104,6 +105,7 @@ class Config:
             autonomy = AutonomyPolicy.CONSERVATIVE
 
         log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+        test_catalog_path = os.environ.get("TEST_CATALOG_PATH", "").strip()
 
         return cls(
             llm_base_url=llm_base_url,
@@ -111,6 +113,7 @@ class Config:
             model_id=model_id,
             autonomy_policy=autonomy,
             log_level=log_level,
+            test_catalog_path=test_catalog_path,
         )
 
     def validate(self) -> list[str]:

@@ -33,13 +33,20 @@ The command translator uses framework-specific strategies for:
 
 `ExecutionTarget` is an abstraction for where commands run.
 
-Current concrete target:
+Current concrete targets:
 
 - `LocalTarget`
+- `SSHTarget`
 
 Design intent:
 
 - support local, Docker, and remote CI targets behind the same interface
+
+Current catalog-driven behavior:
+
+- local catalog entries execute through `LocalTarget`
+- catalog entries with `catalog_system_transport=ssh` are resolved per command into `SSHTarget`
+- explicit CLI target overrides still take precedence over automatic catalog-based target selection
 
 ## Policy
 
@@ -58,3 +65,9 @@ The orchestrator now passes CLI-selected execution parameters into the execution
 - timeout override
 - working-directory override
 - default command environment for local runs
+
+Remote nuance:
+
+- local-only PATH injection is not applied to cataloged `ssh` commands
+- local default working-directory fallback is not injected into cataloged `ssh` commands
+- remote commands run through the local `ssh` client using saved host metadata from the catalog

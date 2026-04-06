@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from test_runner.execution.targets import (
@@ -12,12 +14,29 @@ from test_runner.execution.targets import (
     ExecutionTarget,
     LocalTarget,
     RemoteCITarget,
+    SSHConfig,
+    SSHTarget,
     TargetRegistry,
 )
 
 
 class TestLocalTarget:
     """Tests for the local subprocess execution target."""
+
+    def test_normalize_pytest_uses_active_interpreter(self, monkeypatch):
+        target = LocalTarget()
+        monkeypatch.setattr(sys, "executable", "/tmp/python-test")
+
+        command = target._normalize_command(["pytest", "tests/test_cli.py"])
+
+        assert command == ["/tmp/python-test", "-m", "pytest", "tests/test_cli.py"]
+
+    def test_normalize_non_pytest_leaves_command_unchanged(self):
+        target = LocalTarget()
+
+        command = target._normalize_command(["echo", "hello"])
+
+        assert command == ["echo", "hello"]
 
     @pytest.mark.asyncio
     async def test_successful_command(self):
@@ -181,6 +200,79 @@ class TestExecutionTargetLifecycle:
         result = await target.execute(["echo", "test"])
         result = await target.collect_results(result)
         assert result.metadata["enriched"] is True
+
+
+class TestSSHTarget:
+    """Tests for the SSH execution target."""
+
+    def test_name_uses_alias(self):
+        target = SSHTarget(
+            SSHConfig(alias="lab-a", hostname="lab-a.internal.example"),
+        )
+        assert target.name == "ssh:lab-a"
+
+    def test_build_ssh_command_with_hostname_and_user(self):
+        target = SSHTarget(
+            SSHConfig(
+                alias="lab-a",
+                hostname="lab-a.internal.example",
+                username="runner",
+                port=2222,
+            )
+        )
+
+        command = target._build_ssh_command(
+            ["python", "scripts/check.py", "--quick"],
+            working_directory="/opt/test-suite",
+            env={"MODE": "smoke"},
+        )
+
+        assert command[:5] == ["ssh", "-o", "BatchMode=yes", "-p", "2222"]
+        assert "runner@lab-a.internal.example" in command
+        assert command[-1] == (
+            "cd /opt/test-suite && env MODE=smoke "
+            "python scripts/check.py --quick"
+        )
+
+    def test_build_ssh_command_prefers_ssh_config_host(self):
+        target = SSHTarget(
+            SSHConfig(
+                alias="lab-a",
+                hostname="ignored.example",
+                ssh_config_host="lab-a",
+            )
+        )
+
+        command = target._build_ssh_command(["./bin/device-check"])
+
+        assert "lab-a" in command
+        assert "ignored.example" not in command
+
+    @pytest.mark.asyncio
+    async def test_execute_wraps_local_ssh_invocation(self, monkeypatch):
+        target = SSHTarget(
+            SSHConfig(alias="lab-a", hostname="lab-a.internal.example"),
+        )
+
+        async def fake_execute(command, *, working_directory="", env=None, timeout=None):
+            assert command[0] == "ssh"
+            return ExecutionResult(
+                status=ExecutionStatus.PASSED,
+                exit_code=0,
+                stdout="remote-ok",
+                stderr="",
+                duration_seconds=0.5,
+                command_display=" ".join(command),
+            )
+
+        monkeypatch.setattr(target._local, "execute", fake_execute)
+
+        result = await target.execute(["./bin/device-check"], timeout=30)
+
+        assert result.success
+        assert result.stdout == "remote-ok"
+        assert result.metadata["target"] == "ssh:lab-a"
+        assert result.metadata["transport"] == "ssh"
 
 
 class TestDockerTarget:

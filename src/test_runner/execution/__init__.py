@@ -49,6 +49,8 @@ from test_runner.execution.targets import (
     ExecutionTarget,
     LocalTarget,
     RemoteCITarget,
+    SSHConfig,
+    SSHTarget,
     TargetRegistry,
 )
 
@@ -75,6 +77,8 @@ __all__ = [
     "OutputCallback",
     "RemoteCIExecutionTarget",
     "RemoteCITarget",
+    "SSHConfig",
+    "SSHTarget",
     "ScriptCommand",
     "ScriptExecutor",
     "ScriptResult",

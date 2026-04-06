@@ -22,6 +22,8 @@ Facts about this codebase, such as:
 - test commands
 - conventions
 - recurring failure patterns
+- approved test aliases and execution definitions
+- known remote systems and host aliases
 
 ### Runtime Memory
 
@@ -55,3 +57,13 @@ Durable facts should be written in markdown with metadata:
 - Agents may propose memory.
 - The orchestrator or supervising workflow should decide what becomes durable.
 - Low-confidence notes should stay in run memory until confirmed.
+- New runnable test definitions should only become durable after explicit user confirmation of alias, path, host/system, and execution type.
+
+## Catalog Direction
+
+For the intended product direction, durable memory should separate:
+
+- explanatory markdown wiki pages for humans and agent context
+- authoritative machine-readable test definitions for execution
+
+The wiki can describe tests and systems, but execution should eventually resolve through a controlled catalog rather than freeform markdown parsing alone.

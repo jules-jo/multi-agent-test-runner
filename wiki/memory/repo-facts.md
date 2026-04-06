@@ -64,12 +64,28 @@
 - Source: CLI smoke test and `src/test_runner/cli.py`
 - Last verified: 2026-04-06
 
+## Local Pytest Execution
+
+- Fact: Local execution rewrites bare `pytest` invocations to `python -m pytest`, which avoids Windows launch failures when `pytest` is not separately discoverable on `PATH`.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/execution/targets.py` and Windows failure log analysis
+- Last verified: 2026-04-06
+
 ## Reporter Callback Wiring
 
 - Fact: The executor reports task attempts to the reporter through the task-level callback path, but retried infrastructure attempts are now logged as retry events instead of being counted as separate failed tests.
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/orchestrator/hub.py` and CLI smoke test
+- Last verified: 2026-04-06
+
+## Failure Context Preservation
+
+- Fact: Serialized execution summaries now preserve stdout/stderr from the last attempt, which keeps infrastructure launch errors visible to the troubleshooter.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/execution/executor.py` and Windows failure log analysis
 - Last verified: 2026-04-06
 
 ## Dataiku Mesh Parser Compatibility
@@ -110,6 +126,94 @@
 - Scope: repo
 - Confidence: high
 - Source: architecture review
+- Last verified: 2026-04-06
+
+## Product Direction
+
+- Fact: The intended end state is a chatbot-style test operations agent rather than only a one-shot natural-language CLI runner.
+- Scope: repo
+- Confidence: high
+- Source: product-direction discussion
+- Last verified: 2026-04-06
+
+## Closed-World Execution
+
+- Fact: The desired execution model is closed-world: the system should only run tests that are saved in an approved catalog or wiki-backed registry, and it should ask for clarification instead of inventing unknown test runs.
+- Scope: repo
+- Confidence: high
+- Source: product-direction discussion
+- Last verified: 2026-04-06
+
+## Catalog Registry Implementation
+
+- Fact: The repo now has a deterministic JSON-backed catalog registry in `src/test_runner/catalog.py` that matches saved aliases/keywords locally and builds runnable commands only from saved entries.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/catalog.py`
+- Last verified: 2026-04-06
+
+## Catalog Mode Activation
+
+- Fact: Closed-world catalog enforcement is currently opt-in via the `TEST_CATALOG_PATH` environment variable; when configured, the intent service loads the catalog and stops unknown or ambiguous requests before execution.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/config.py`, `src/test_runner/agents/intent_service.py`, and `src/test_runner/orchestrator/hub.py`
+- Last verified: 2026-04-06
+
+## Catalog Execution Types
+
+- Fact: The current machine-readable catalog supports saved `python_script` and `executable` definitions, and catalog mode ignores ad hoc extra args so execution stays bounded to the saved definition.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/catalog.py`
+- Last verified: 2026-04-06
+
+## Catalog System Schema
+
+- Fact: The authoritative catalog schema now includes named execution systems with `local` and `ssh` transports; test entries reference those systems by alias instead of embedding host details ad hoc.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/catalog.py` and `registry/catalog.example.json`
+- Last verified: 2026-04-06
+
+## Remote Entries Fail Closed
+
+- Fact: Catalog entries targeting saved `ssh` systems now translate into runnable commands and are executed through `SSHTarget`, which shells out through the local `ssh` client using catalog system metadata.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/catalog.py`, `src/test_runner/execution/targets.py`, and `src/test_runner/execution/executor.py`
+- Last verified: 2026-04-06
+
+## Remote Commands Avoid Local Defaults
+
+- Fact: Local-only PATH injection and local default working-directory fallbacks are not applied to cataloged `ssh` commands; remote commands keep only the saved system and entry configuration.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/catalog.py` and `src/test_runner/orchestrator/hub.py`
+- Last verified: 2026-04-06
+
+## Catalog Dry-Run Behavior
+
+- Fact: In catalog mode, CLI dry runs now return a non-zero result when a request does not resolve to a runnable saved alias, instead of reporting the request as accepted.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/cli.py` and `tests/test_cli.py`
+- Last verified: 2026-04-06
+
+## Catalog Growth Rule
+
+- Fact: New tests may be added through conversation, but only after the user confirms the alias, file path, execution type, and target system information.
+- Scope: repo
+- Confidence: high
+- Source: product-direction discussion
+- Last verified: 2026-04-06
+
+## Immediate Execution Types
+
+- Fact: The immediate execution targets to support are Python scripts and binary executables.
+- Scope: repo
+- Confidence: high
+- Source: product-direction discussion
 - Last verified: 2026-04-06
 
 ## Dataiku Mesh Status

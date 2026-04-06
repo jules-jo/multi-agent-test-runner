@@ -425,6 +425,80 @@ class TestExecutorDelegationWiring:
 class TestFullRunDelegationWiring:
     """Test that the full run() method wires state + budget for all sub-agents."""
 
+    async def test_run_stops_before_execution_when_no_runnable_command_exists(
+        self,
+    ) -> None:
+        """A clarification-only resolution should not enter discovery or execution."""
+        from test_runner.agents.intent_service import IntentResolution, ParseMode
+        from test_runner.agents.parser import ParsedTestRequest
+        from test_runner.execution.command_translator import TranslationResult
+
+        config = _make_config()
+        parsed = ParsedTestRequest(
+            intent=TestIntent.RUN,
+            framework=TestFramework.UNKNOWN,
+            confidence=0.9,
+            raw_request="run missing suite",
+        )
+        resolution = IntentResolution(
+            parsed_request=parsed,
+            translation=TranslationResult(commands=[], warnings=[], source_request=parsed),
+            parse_mode_used=ParseMode.OFFLINE,
+            warnings=["Request did not match any cataloged test definition."],
+            needs_clarification=True,
+        )
+
+        hub = OrchestratorHub(config)
+        hub._resolve_intent = AsyncMock(return_value=resolution)
+        hub._delegate_to_discovery = AsyncMock()
+        hub._delegate_to_executor = AsyncMock()
+
+        state = await hub.run("run missing suite")
+
+        assert state.phase == RunPhase.FAILED
+        assert any("cataloged test definition" in error for error in state.errors)
+        hub._delegate_to_discovery.assert_not_awaited()
+        hub._delegate_to_executor.assert_not_awaited()
+
+    async def test_resolve_intent_does_not_apply_local_workdir_to_remote_catalog_command(
+        self,
+    ) -> None:
+        from test_runner.agents.intent_service import IntentResolution, ParseMode
+        from test_runner.agents.parser import ParsedTestRequest
+        from test_runner.execution.command_translator import TranslationResult
+
+        config = _make_config()
+        parsed = ParsedTestRequest(
+            intent=TestIntent.RUN,
+            framework=TestFramework.SCRIPT,
+            confidence=0.9,
+            raw_request="run device-check",
+        )
+        command = TestCommand(
+            command=["./bin/device-check"],
+            display="./bin/device-check",
+            framework=TestFramework.SCRIPT,
+            metadata={
+                "catalog_system_transport": "ssh",
+            },
+        )
+        resolution = IntentResolution(
+            parsed_request=parsed,
+            translation=TranslationResult(commands=[command], warnings=[], source_request=parsed),
+            parse_mode_used=ParseMode.OFFLINE,
+        )
+
+        hub = OrchestratorHub(
+            config,
+            default_working_directory="/workspace",
+        )
+        hub.intent_service.resolve = AsyncMock(return_value=resolution)
+        state = RunState(request="run device-check")
+
+        resolved = await hub._resolve_intent(state, "run device-check")
+
+        assert resolved.commands[0].working_directory == ""
+
     async def test_run_tracks_discovery_in_state_store(self) -> None:
         """A full run should show discovery delegation in state store."""
         config = _make_config()
