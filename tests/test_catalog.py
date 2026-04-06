@@ -13,6 +13,7 @@ from test_runner.catalog import (
     CatalogExecutionType,
     CatalogMatchStatus,
     CatalogSystem,
+    CatalogSystemAuthMethod,
     CatalogSystemTransport,
 )
 
@@ -193,6 +194,22 @@ class TestCatalogRepositoryPersistence:
         loaded = CatalogRepository(path).load_document()
         assert loaded.entries[0].alias == "device-check"
         assert loaded.systems[0].alias == "lab-a"
+
+    def test_password_ssh_system_requires_password_env_var(self, tmp_path) -> None:
+        path = tmp_path / "catalog.json"
+        repo = CatalogRepository(path)
+        repo.save_document(CatalogDocument())
+
+        with pytest.raises(ValueError, match="password_env_var"):
+            repo.add_system(
+                CatalogSystem(
+                    alias="lab-a",
+                    transport=CatalogSystemTransport.SSH,
+                    auth_method=CatalogSystemAuthMethod.PASSWORD,
+                    hostname="lab-a.example",
+                    username="root",
+                )
+            )
 
     def test_add_entry_rejects_unknown_system(self, tmp_path) -> None:
         path = tmp_path / "catalog.json"

@@ -43,7 +43,8 @@
 - The authoritative catalog schema now includes named `ssh` systems and references from test entries to those systems.
 - The execution layer now includes an `SSHTarget`, so cataloged remote commands can execute through the local `ssh` client.
 - Basic deterministic SSH preflight now exists, including local `ssh` client availability checks and short remote reachability checks.
-- What is still missing is broader operational hardening: better remote environment/bootstrap handling, artifact collection, richer remediation guidance, and more real-world validation against remote hosts.
+- Password-based SSH auth is now supported through an env-var password reference and a Python SSH backend.
+- What is still missing is broader operational hardening: better remote environment/bootstrap handling, artifact collection, richer remediation guidance, host-key policy hardening, and more real-world validation against remote hosts.
 
 ## Tracking Note
 

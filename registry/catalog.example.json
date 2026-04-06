@@ -17,8 +17,21 @@
       "hostname": "lab-a.internal.example",
       "username": "runner",
       "port": 22,
+      "auth_method": "ssh_key",
       "ssh_config_host": "lab-a",
       "credential_ref": "ssh-config:lab-a",
+      "working_directory": "/opt/test-suite"
+    },
+    {
+      "alias": "lab-password",
+      "description": "Remote host using password-based SSH auth",
+      "transport": "ssh",
+      "hostname": "192.168.1.50",
+      "username": "root",
+      "port": 22,
+      "auth_method": "password",
+      "password_env_var": "LAB_PASSWORD_SSH_PASSWORD",
+      "credential_ref": "env:LAB_PASSWORD_SSH_PASSWORD",
       "working_directory": "/opt/test-suite"
     }
   ],

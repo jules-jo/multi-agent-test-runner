@@ -36,6 +36,7 @@ from test_runner.catalog import (
     CatalogRegistry,
     CatalogRepository,
     CatalogSystem,
+    CatalogSystemAuthMethod,
     CatalogSystemTransport,
 )
 from test_runner.execution.factory import get_factory
@@ -649,6 +650,29 @@ def _prompt_transport(
         console.print("[red]Choose one of: local, ssh.[/red]")
 
 
+def _prompt_ssh_auth_method(
+    *,
+    default: CatalogSystemAuthMethod = CatalogSystemAuthMethod.SSH_KEY,
+) -> CatalogSystemAuthMethod:
+    """Prompt for the SSH authentication method."""
+    aliases = {
+        "ssh_key": CatalogSystemAuthMethod.SSH_KEY,
+        "key": CatalogSystemAuthMethod.SSH_KEY,
+        "ssh-key": CatalogSystemAuthMethod.SSH_KEY,
+        "password": CatalogSystemAuthMethod.PASSWORD,
+        "pass": CatalogSystemAuthMethod.PASSWORD,
+    }
+    while True:
+        raw = _prompt_text(
+            "SSH auth method",
+            default=default.value,
+        ).strip().lower()
+        resolved = aliases.get(raw)
+        if resolved is not None:
+            return resolved
+        console.print("[red]Choose one of: ssh_key, password.[/red]")
+
+
 def _prompt_keywords(*, default: list[str] | None = None) -> list[str]:
     """Prompt for optional comma-separated keywords."""
     raw = _prompt_text(
@@ -685,31 +709,53 @@ def _prompt_catalog_system(
     ssh_config_host = existing.ssh_config_host if existing is not None else ""
     username = existing.username if existing is not None else ""
     port: int | None = existing.port if existing is not None else None
+    auth_method = (
+        existing.auth_method
+        if existing is not None
+        else CatalogSystemAuthMethod.SSH_KEY
+    )
+    password_env_var = existing.password_env_var if existing is not None else ""
     credential_ref = existing.credential_ref if existing is not None else ""
 
     if transport == CatalogSystemTransport.SSH:
+        auth_method = _prompt_ssh_auth_method(default=auth_method)
         while True:
             hostname = _prompt_text("SSH hostname", default=hostname)
             ssh_config_host = _prompt_text(
                 "SSH config host alias",
                 default=ssh_config_host or alias,
             )
-            if hostname or ssh_config_host:
+            if auth_method == CatalogSystemAuthMethod.PASSWORD:
+                if hostname:
+                    break
+            elif hostname or ssh_config_host:
                 break
             console.print(
                 "[red]Enter a hostname or ssh config host alias.[/red]"
             )
         username = _prompt_text("SSH username", default=username)
         port = _prompt_optional_int("SSH port", default=port)
+        if auth_method == CatalogSystemAuthMethod.PASSWORD:
+            password_env_var = _prompt_required_text(
+                "Password environment variable",
+                default=password_env_var or f"{alias.upper().replace('-', '_')}_SSH_PASSWORD",
+            )
+            ssh_config_host = ""
         credential_ref = _prompt_text(
             "Credential reference",
-            default=credential_ref or (f"ssh-config:{alias}" if ssh_config_host else ""),
+            default=credential_ref or (
+                f"env:{password_env_var}"
+                if auth_method == CatalogSystemAuthMethod.PASSWORD
+                else (f"ssh-config:{alias}" if ssh_config_host else "")
+            ),
         )
     else:
         hostname = ""
         ssh_config_host = ""
         username = ""
         port = None
+        auth_method = CatalogSystemAuthMethod.SSH_KEY
+        password_env_var = ""
         credential_ref = ""
 
     return CatalogSystem(
@@ -720,6 +766,8 @@ def _prompt_catalog_system(
         username=username,
         port=port,
         ssh_config_host=ssh_config_host,
+        auth_method=auth_method,
+        password_env_var=password_env_var,
         working_directory=working_directory,
         credential_ref=credential_ref,
     )
@@ -899,6 +947,7 @@ def _print_catalog_entry_details(
             f"[dim]- transport: {system.transport.value}[/dim]"
         )
         if system.transport == CatalogSystemTransport.SSH:
+            console.print(f"[dim]- ssh auth: {system.auth_method.value}[/dim]")
             if system.ssh_config_host:
                 console.print(
                     f"[dim]- ssh config host: {system.ssh_config_host}[/dim]"
@@ -907,6 +956,10 @@ def _print_catalog_entry_details(
                 console.print(f"[dim]- hostname: {system.hostname}[/dim]")
             if system.username:
                 console.print(f"[dim]- username: {system.username}[/dim]")
+            if system.password_env_var:
+                console.print(
+                    f"[dim]- password env var: {system.password_env_var}[/dim]"
+                )
 
 
 def _print_catalog_system_details(system: CatalogSystem) -> None:

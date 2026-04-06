@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -248,6 +249,19 @@ class TestSSHTarget:
         assert "lab-a" in command
         assert "ignored.example" not in command
 
+    def test_password_auth_target_uses_password_mode(self):
+        target = SSHTarget(
+            SSHConfig(
+                alias="lab-a",
+                hostname="192.168.1.50",
+                username="root",
+                auth_method="password",
+                password_env_var="LAB_A_SSH_PASSWORD",
+            )
+        )
+
+        assert target.uses_password_auth
+
     @pytest.mark.asyncio
     async def test_execute_wraps_local_ssh_invocation(self, monkeypatch):
         target = SSHTarget(
@@ -350,6 +364,122 @@ class TestSSHTarget:
         monkeypatch.setattr(target._local, "execute", fake_execute)
 
         assert not await target.health_check()
+
+    @pytest.mark.asyncio
+    async def test_password_auth_uses_paramiko_with_env_password(
+        self, monkeypatch
+    ):
+        target = SSHTarget(
+            SSHConfig(
+                alias="lab-a",
+                hostname="192.168.1.50",
+                username="root",
+                auth_method="password",
+                password_env_var="LAB_A_SSH_PASSWORD",
+            )
+        )
+        monkeypatch.setenv("LAB_A_SSH_PASSWORD", "secret-pass")
+
+        seen: dict[str, object] = {}
+
+        class FakeChannel:
+            def __init__(self, exit_code: int = 0):
+                self._exit_code = exit_code
+
+            def exit_status_ready(self) -> bool:
+                return True
+
+            def recv_exit_status(self) -> int:
+                return self._exit_code
+
+            def close(self) -> None:
+                return None
+
+        class FakeStream:
+            def __init__(self, payload: str, exit_code: int = 0):
+                self._payload = payload.encode("utf-8")
+                self.channel = FakeChannel(exit_code)
+
+            def read(self) -> bytes:
+                return self._payload
+
+        class FakeStdin:
+            def close(self) -> None:
+                return None
+
+        class FakeSSHClient:
+            def set_missing_host_key_policy(self, policy) -> None:
+                seen["policy"] = policy
+
+            def connect(self, **kwargs) -> None:
+                seen["connect"] = kwargs
+
+            def exec_command(self, command, timeout=None):
+                seen["command"] = command
+                seen["timeout"] = timeout
+                return (
+                    FakeStdin(),
+                    FakeStream("remote-ok", exit_code=0),
+                    FakeStream("", exit_code=0),
+                )
+
+            def close(self) -> None:
+                seen["closed"] = True
+
+        fake_paramiko = SimpleNamespace(
+            SSHClient=FakeSSHClient,
+            AutoAddPolicy=lambda: object(),
+        )
+        monkeypatch.setattr(
+            "test_runner.execution.targets.paramiko",
+            fake_paramiko,
+        )
+
+        result = await target.execute(
+            ["./bin/device-check"],
+            working_directory="/opt/tests",
+            env={"MODE": "smoke"},
+            timeout=30,
+        )
+
+        assert result.success
+        assert result.stdout == "remote-ok"
+        assert result.metadata["ssh_auth_method"] == "password"
+        assert seen["connect"] == {
+            "hostname": "192.168.1.50",
+            "port": 22,
+            "username": "root",
+            "password": "secret-pass",
+            "timeout": 10,
+            "look_for_keys": False,
+            "allow_agent": False,
+        }
+        assert seen["command"] == "cd /opt/tests && env MODE=smoke ./bin/device-check"
+
+    @pytest.mark.asyncio
+    async def test_password_auth_requires_env_var(self, monkeypatch):
+        target = SSHTarget(
+            SSHConfig(
+                alias="lab-a",
+                hostname="192.168.1.50",
+                username="root",
+                auth_method="password",
+                password_env_var="LAB_A_SSH_PASSWORD",
+            )
+        )
+        monkeypatch.delenv("LAB_A_SSH_PASSWORD", raising=False)
+        monkeypatch.setattr(
+            "test_runner.execution.targets.paramiko",
+            SimpleNamespace(
+                SSHClient=object,
+                AutoAddPolicy=lambda: object(),
+            ),
+        )
+
+        result = await target.execute(["./bin/device-check"], timeout=30)
+
+        assert result.status == ExecutionStatus.ERROR
+        assert "LAB_A_SSH_PASSWORD" in result.stderr
 
 
 class TestDockerTarget:

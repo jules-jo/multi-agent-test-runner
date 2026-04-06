@@ -21,6 +21,11 @@ from typing import Any, AsyncIterator, Optional
 
 logger = logging.getLogger(__name__)
 
+try:  # pragma: no cover - exercised through monkeypatch in tests when absent
+    import paramiko  # type: ignore[import-not-found]
+except Exception:  # noqa: BLE001
+    paramiko = None
+
 
 class ExecutionStatus(str, Enum):
     """Status of a single command execution."""
@@ -388,6 +393,8 @@ class SSHConfig:
     username: str = ""
     port: int | None = None
     ssh_config_host: str = ""
+    auth_method: str = "ssh_key"
+    password_env_var: str = ""
     credential_ref: str = ""
     extra_args: list[str] = field(default_factory=list)
     batch_mode: bool = True
@@ -397,6 +404,13 @@ class SSHConfig:
             raise ValueError("SSHConfig requires ssh_config_host or hostname")
         if self.port is not None and self.port < 1:
             raise ValueError("port must be >= 1")
+        if self.auth_method not in {"ssh_key", "password"}:
+            raise ValueError("auth_method must be 'ssh_key' or 'password'")
+        if self.auth_method == "password":
+            if not self.hostname:
+                raise ValueError("password auth requires hostname")
+            if not self.password_env_var:
+                raise ValueError("password auth requires password_env_var")
 
 
 class SSHTarget(ExecutionTarget):
@@ -418,6 +432,8 @@ class SSHTarget(ExecutionTarget):
                 username=str(metadata.get("username") or ""),
                 port=metadata.get("port"),
                 ssh_config_host=str(metadata.get("ssh_config_host") or ""),
+                auth_method=str(metadata.get("auth_method") or "ssh_key"),
+                password_env_var=str(metadata.get("password_env_var") or ""),
                 credential_ref=str(metadata.get("credential_ref") or ""),
             )
         )
@@ -433,6 +449,10 @@ class SSHTarget(ExecutionTarget):
         if self._config.username:
             return f"{self._config.username}@{self._config.hostname}"
         return self._config.hostname
+
+    @property
+    def uses_password_auth(self) -> bool:
+        return self._config.auth_method == "password"
 
     def _build_remote_command(
         self,
@@ -481,6 +501,11 @@ class SSHTarget(ExecutionTarget):
         )
         return ssh_command
 
+    def _password_from_env(self) -> str:
+        if not self._config.password_env_var:
+            return ""
+        return os.environ.get(self._config.password_env_var, "")
+
     def _build_ssh_base_command(self) -> list[str]:
         ssh_command = ["ssh"]
         if self._config.batch_mode:
@@ -510,6 +535,7 @@ class SSHTarget(ExecutionTarget):
                 "target": self.name,
                 "transport": "ssh",
                 "ssh_destination": self.destination,
+                "ssh_auth_method": self._config.auth_method,
                 "credential_ref": self._config.credential_ref,
             }
         )
@@ -526,11 +552,161 @@ class SSHTarget(ExecutionTarget):
             metadata=metadata,
         )
 
+    def _execute_password_sync(
+        self,
+        command: list[str],
+        *,
+        working_directory: str = "",
+        env: dict[str, str] | None = None,
+        timeout: int | None = None,
+        preflight_only: bool = False,
+    ) -> ExecutionResult:
+        start = time.monotonic()
+        if paramiko is None:
+            elapsed = time.monotonic() - start
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                exit_code=-1,
+                stdout="",
+                stderr=(
+                    "Password-based SSH requires the optional 'paramiko' dependency."
+                ),
+                duration_seconds=elapsed,
+                command_display=" ".join(command),
+            )
+
+        password = self._password_from_env()
+        if not password:
+            elapsed = time.monotonic() - start
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                exit_code=-1,
+                stdout="",
+                stderr=(
+                    f"Password-based SSH requires env var "
+                    f"{self._config.password_env_var!r} to be set."
+                ),
+                duration_seconds=elapsed,
+                command_display=" ".join(command),
+            )
+
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            client.connect(
+                hostname=self._config.hostname,
+                port=self._config.port or 22,
+                username=self._config.username or None,
+                password=password,
+                timeout=self._preflight_timeout(timeout),
+                look_for_keys=False,
+                allow_agent=False,
+            )
+
+            if preflight_only:
+                elapsed = time.monotonic() - start
+                return ExecutionResult(
+                    status=ExecutionStatus.PASSED,
+                    exit_code=0,
+                    stdout="",
+                    stderr="",
+                    duration_seconds=elapsed,
+                    command_display=f"ssh {self.destination} true",
+                )
+
+            remote_command = self._build_remote_command(
+                command,
+                working_directory=working_directory,
+                env=env,
+            )
+            stdin, stdout, stderr = client.exec_command(
+                remote_command,
+                timeout=timeout,
+            )
+            try:
+                if timeout is not None:
+                    deadline = time.monotonic() + timeout
+                    while not stdout.channel.exit_status_ready():
+                        if time.monotonic() >= deadline:
+                            stdout.channel.close()
+                            stderr.channel.close()
+                            elapsed = time.monotonic() - start
+                            return ExecutionResult(
+                                status=ExecutionStatus.TIMEOUT,
+                                exit_code=-1,
+                                stdout="",
+                                stderr=f"Command timed out after {timeout}s",
+                                duration_seconds=elapsed,
+                                command_display=" ".join(command),
+                            )
+                        time.sleep(0.05)
+                exit_code = stdout.channel.recv_exit_status()
+                stdout_text = stdout.read().decode("utf-8", errors="replace")
+                stderr_text = stderr.read().decode("utf-8", errors="replace")
+            finally:
+                try:
+                    stdin.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+            elapsed = time.monotonic() - start
+            status = ExecutionStatus.PASSED if exit_code == 0 else ExecutionStatus.FAILED
+            return ExecutionResult(
+                status=status,
+                exit_code=exit_code,
+                stdout=stdout_text,
+                stderr=stderr_text,
+                duration_seconds=elapsed,
+                command_display=" ".join(command),
+            )
+        except Exception as exc:  # noqa: BLE001
+            elapsed = time.monotonic() - start
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                exit_code=-1,
+                stdout="",
+                stderr=f"SSH password auth error: {exc}",
+                duration_seconds=elapsed,
+                command_display=" ".join(command),
+            )
+        finally:
+            try:
+                client.close()
+            except Exception:  # noqa: BLE001
+                pass
+
     async def _run_preflight(
         self,
         *,
         timeout: int | None,
     ) -> ExecutionResult | None:
+        if self.uses_password_auth:
+            password_preflight = await asyncio.to_thread(
+                self._execute_password_sync,
+                ["true"],
+                timeout=timeout,
+                preflight_only=True,
+            )
+            if password_preflight.success:
+                return None
+            return self._finalize_result(
+                ExecutionResult(
+                    status=ExecutionStatus.ERROR,
+                    exit_code=password_preflight.exit_code,
+                    stdout=password_preflight.stdout,
+                    stderr=(
+                        f"SSH preflight failed for {self.destination}: "
+                        f"{password_preflight.stderr}"
+                    ),
+                    duration_seconds=password_preflight.duration_seconds,
+                    command_display=password_preflight.command_display,
+                    attempt=password_preflight.attempt,
+                    metadata=dict(password_preflight.metadata),
+                ),
+                command=["ssh", self.destination],
+                extra_metadata={"ssh_preflight": "password"},
+            )
+
         client_check = await self._local.execute(
             ["ssh", "-V"],
             timeout=self._preflight_timeout(timeout),
@@ -598,6 +774,19 @@ class SSHTarget(ExecutionTarget):
         if preflight_result is not None:
             return preflight_result
 
+        if self.uses_password_auth:
+            result = await asyncio.to_thread(
+                self._execute_password_sync,
+                command,
+                working_directory=working_directory,
+                env=env,
+                timeout=timeout,
+            )
+            return self._finalize_result(
+                result,
+                command=command,
+            )
+
         ssh_command = self._build_ssh_command(
             command,
             working_directory=working_directory,
@@ -623,6 +812,19 @@ class SSHTarget(ExecutionTarget):
         preflight_result = await self._run_preflight(timeout=timeout)
         if preflight_result is not None:
             yield f"[error] {preflight_result.stderr}"
+            return
+
+        if self.uses_password_auth:
+            result = await self.execute(
+                command,
+                working_directory=working_directory,
+                env=env,
+                timeout=timeout,
+            )
+            for line in result.stdout.splitlines():
+                yield line
+            for line in result.stderr.splitlines():
+                yield f"[stderr] {line}"
             return
 
         ssh_command = self._build_ssh_command(

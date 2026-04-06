@@ -42,6 +42,8 @@ Current fields:
 - `username`
 - `port`
 - `ssh_config_host`
+- `auth_method`
+- `password_env_var`
 - `working_directory`
 - `env`
 - `credential_ref`
@@ -55,11 +57,13 @@ Current transports:
 Important rule:
 
 - `credential_ref` is only a pointer to external credentials such as SSH config or a secret manager key. Secrets do not belong in the catalog.
+- for password-based SSH, store the password in an environment variable and save only the env-var name in `password_env_var`
 
 Current implementation status:
 
 - `local` systems are executable now
 - `ssh` systems are executable through `SSHTarget`, which shells out through the local `ssh` client using saved host metadata
+- password-based `ssh` systems are also supported; they use a Python SSH backend and read the password from the configured environment variable instead of prompting interactively
 
 ## Entries
 

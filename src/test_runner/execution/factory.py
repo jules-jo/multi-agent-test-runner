@@ -121,7 +121,8 @@ def _create_ssh(**config: Any) -> ExecutionTarget:
     """Create an :class:`SSHTarget` from config."""
     ssh_cfg_keys = {
         "alias", "hostname", "username", "port",
-        "ssh_config_host", "credential_ref", "extra_args", "batch_mode",
+        "ssh_config_host", "auth_method", "password_env_var",
+        "credential_ref", "extra_args", "batch_mode",
     }
     ssh_kwargs = {k: v for k, v in config.items() if k in ssh_cfg_keys}
     return SSHTarget(SSHConfig(**ssh_kwargs))
@@ -351,6 +352,8 @@ class ExecutionTargetFactory:
                 "username": "Remote ssh username",
                 "port": "Optional ssh port",
                 "ssh_config_host": "Optional host alias from ~/.ssh/config",
+                "auth_method": "SSH authentication method: ssh_key or password",
+                "password_env_var": "Env var name that stores the SSH password for password auth",
                 "credential_ref": "Pointer to external credentials or ssh config",
             },
         )

@@ -37,6 +37,13 @@ class CatalogSystemTransport(str, Enum):
     SSH = "ssh"
 
 
+class CatalogSystemAuthMethod(str, Enum):
+    """Authentication methods for saved SSH systems."""
+
+    SSH_KEY = "ssh_key"
+    PASSWORD = "password"
+
+
 class CatalogSystem(BaseModel):
     """One saved execution system definition."""
 
@@ -47,6 +54,8 @@ class CatalogSystem(BaseModel):
     username: str = ""
     port: int | None = Field(default=None, ge=1, le=65535)
     ssh_config_host: str = ""
+    auth_method: CatalogSystemAuthMethod = CatalogSystemAuthMethod.SSH_KEY
+    password_env_var: str = ""
     working_directory: str = ""
     env: dict[str, str] = Field(default_factory=dict)
     credential_ref: str = ""
@@ -60,7 +69,13 @@ class CatalogSystem(BaseModel):
             raise ValueError("value must not be empty")
         return stripped
 
-    @field_validator("hostname", "username", "ssh_config_host", "credential_ref")
+    @field_validator(
+        "hostname",
+        "username",
+        "ssh_config_host",
+        "password_env_var",
+        "credential_ref",
+    )
     @classmethod
     def _strip_optional_text(cls, value: str) -> str:
         return value.strip()
@@ -72,6 +87,15 @@ class CatalogSystem(BaseModel):
                 raise ValueError(
                     "ssh systems require either hostname or ssh_config_host",
                 )
+            if self.auth_method == CatalogSystemAuthMethod.PASSWORD:
+                if not self.hostname:
+                    raise ValueError(
+                        "password-based ssh systems require hostname",
+                    )
+                if not self.password_env_var:
+                    raise ValueError(
+                        "password-based ssh systems require password_env_var",
+                    )
         return self
 
 

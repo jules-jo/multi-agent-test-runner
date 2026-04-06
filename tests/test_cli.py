@@ -618,6 +618,7 @@ class TestAsyncMain:
             "",                   # transport
             "Updated lab",        # description
             "/opt/tests",         # working directory
+            "",                   # ssh auth method
             "",                   # hostname
             "",                   # ssh config host
             "runner2",            # username
