@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from test_runner.catalog import CatalogSystemAuthMethod
 from test_runner.execution.targets import (
     DockerConfig,
     DockerTarget,
@@ -261,6 +262,20 @@ class TestSSHTarget:
         )
 
         assert target.uses_password_auth
+
+    def test_from_metadata_accepts_catalog_auth_enum(self):
+        target = SSHTarget.from_metadata(
+            {
+                "alias": "lab-a",
+                "hostname": "192.168.1.50",
+                "username": "root",
+                "auth_method": CatalogSystemAuthMethod.PASSWORD,
+                "password_env_var": "LAB_A_SSH_PASSWORD",
+            }
+        )
+
+        assert target.uses_password_auth
+        assert target.destination == "root@192.168.1.50"
 
     @pytest.mark.asyncio
     async def test_execute_wraps_local_ssh_invocation(self, monkeypatch):

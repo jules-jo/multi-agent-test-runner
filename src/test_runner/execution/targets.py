@@ -422,19 +422,29 @@ class SSHTarget(ExecutionTarget):
         self._config = config
         self._local = LocalTarget()
 
+    @staticmethod
+    def _metadata_text(value: Any, *, default: str = "") -> str:
+        """Coerce enum-like metadata values to plain text."""
+        if value is None:
+            return default
+        return str(getattr(value, "value", value))
+
     @classmethod
     def from_metadata(cls, metadata: dict[str, Any]) -> "SSHTarget":
         """Build a target from catalog system metadata."""
         return cls(
             SSHConfig(
-                alias=str(metadata.get("alias") or "ssh"),
-                hostname=str(metadata.get("hostname") or ""),
-                username=str(metadata.get("username") or ""),
+                alias=cls._metadata_text(metadata.get("alias"), default="ssh"),
+                hostname=cls._metadata_text(metadata.get("hostname")),
+                username=cls._metadata_text(metadata.get("username")),
                 port=metadata.get("port"),
-                ssh_config_host=str(metadata.get("ssh_config_host") or ""),
-                auth_method=str(metadata.get("auth_method") or "ssh_key"),
-                password_env_var=str(metadata.get("password_env_var") or ""),
-                credential_ref=str(metadata.get("credential_ref") or ""),
+                ssh_config_host=cls._metadata_text(metadata.get("ssh_config_host")),
+                auth_method=cls._metadata_text(
+                    metadata.get("auth_method"),
+                    default="ssh_key",
+                ),
+                password_env_var=cls._metadata_text(metadata.get("password_env_var")),
+                credential_ref=cls._metadata_text(metadata.get("credential_ref")),
             )
         )
 
