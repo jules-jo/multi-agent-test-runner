@@ -456,6 +456,25 @@ class CatalogRepository:
             )
         return None
 
+    def list_entries(self) -> tuple[CatalogEntry, ...]:
+        """Return saved entries sorted by alias."""
+        document = self.load_document()
+        return tuple(
+            sorted(
+                (entry for entry in document.entries if entry.enabled),
+                key=lambda entry: entry.alias.lower(),
+            )
+        )
+
+    def get_entry(self, alias: str) -> CatalogEntry | None:
+        """Return the saved entry with the given alias, if any."""
+        normalized = CatalogRegistry._normalize_phrase(alias)
+        document = self.load_document()
+        for entry in document.entries:
+            if CatalogRegistry._normalize_phrase(entry.alias) == normalized:
+                return entry
+        return None
+
     def add_system(self, system: CatalogSystem) -> CatalogDocument:
         """Persist a new system definition."""
         document = self.load_document()
@@ -484,3 +503,66 @@ class CatalogRepository:
             entries=[*document.entries, entry],
         )
         return self.save_document(updated)
+
+    def update_entry(
+        self,
+        existing_alias: str,
+        updated_entry: CatalogEntry,
+    ) -> CatalogDocument:
+        """Replace an existing entry with an updated definition."""
+        document = self.load_document()
+        existing_key = CatalogRegistry._normalize_phrase(existing_alias)
+        updated_key = CatalogRegistry._normalize_phrase(updated_entry.alias)
+        replacement_index: int | None = None
+
+        for index, entry in enumerate(document.entries):
+            entry_key = CatalogRegistry._normalize_phrase(entry.alias)
+            if entry_key == existing_key:
+                replacement_index = index
+                continue
+            if entry_key == updated_key:
+                raise ValueError(
+                    f"Catalog alias {updated_entry.alias!r} already exists.",
+                )
+
+        if replacement_index is None:
+            raise ValueError(f"Catalog alias {existing_alias!r} does not exist.")
+
+        if self.get_system(updated_entry.system) is None:
+            raise ValueError(
+                f"Catalog entry {updated_entry.alias!r} references unknown system "
+                f"{updated_entry.system!r}.",
+            )
+
+        updated_entries = list(document.entries)
+        updated_entries[replacement_index] = updated_entry
+        updated_document = CatalogDocument(
+            version=document.version,
+            systems=document.systems,
+            entries=updated_entries,
+        )
+        return self.save_document(updated_document)
+
+    def delete_entry(self, alias: str) -> CatalogEntry | None:
+        """Delete one entry by alias and return it."""
+        document = self.load_document()
+        normalized = CatalogRegistry._normalize_phrase(alias)
+        kept_entries: list[CatalogEntry] = []
+        deleted_entry: CatalogEntry | None = None
+
+        for entry in document.entries:
+            if CatalogRegistry._normalize_phrase(entry.alias) == normalized:
+                deleted_entry = entry
+                continue
+            kept_entries.append(entry)
+
+        if deleted_entry is None:
+            return None
+
+        updated_document = CatalogDocument(
+            version=document.version,
+            systems=document.systems,
+            entries=kept_entries,
+        )
+        self.save_document(updated_document)
+        return deleted_entry

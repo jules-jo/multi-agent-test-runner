@@ -15,9 +15,11 @@ import asyncio
 import inspect
 import logging
 import os
+import re
 import shlex
 import sys
 import textwrap
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Sequence
 
@@ -199,6 +201,14 @@ class RequestDispatcher(Protocol):
     def __call__(self, request: str) -> object: ...
 
 
+@dataclass(frozen=True)
+class CatalogCommand:
+    """Parsed local catalog-management command."""
+
+    action: str
+    alias: str = ""
+
+
 def _normalize_frontdoor_text(text: str) -> str:
     """Normalize user input for lightweight front-door handling."""
     normalized = text.strip().lower()
@@ -215,6 +225,10 @@ def _print_frontdoor_help() -> None:
     console.print("[dim]- list pytest tests[/dim]")
     console.print("[dim]- rerun failed pytest tests[/dim]")
     console.print("[dim]- unknown saved tests can be registered interactively[/dim]")
+    console.print("[dim]- list saved tests[/dim]")
+    console.print("[dim]- show test lt[/dim]")
+    console.print("[dim]- edit test lt[/dim]")
+    console.print("[dim]- delete test lt[/dim]")
     console.print("[dim]Use `quit` to leave interactive mode.[/dim]")
 
 
@@ -245,6 +259,34 @@ def _maybe_handle_frontdoor_input(text: str) -> bool:
         return True
 
     return False
+
+
+def _parse_catalog_command(text: str) -> CatalogCommand | None:
+    """Parse deterministic local catalog-management commands."""
+    stripped = text.strip()
+    normalized = _normalize_frontdoor_text(stripped)
+
+    if normalized in {
+        "list saved tests",
+        "list saved test aliases",
+        "list catalog",
+        "list catalog tests",
+    }:
+        return CatalogCommand(action="list")
+
+    match = re.match(
+        r"^(show|edit|delete|remove)\s+(?:saved\s+)?test\s+(.+?)\s*$",
+        stripped,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+
+    action = match.group(1).lower()
+    alias = match.group(2).strip()
+    if action == "remove":
+        action = "delete"
+    return CatalogCommand(action=action, alias=alias)
 
 
 def _prompt_text(prompt: str, *, default: str | None = None) -> str:
@@ -279,10 +321,13 @@ def _prompt_yes_no(prompt: str, *, default: bool = False) -> bool:
         console.print("[red]Please answer yes or no.[/red]")
 
 
-def _prompt_optional_int(prompt: str) -> int | None:
+def _prompt_optional_int(prompt: str, *, default: int | None = None) -> int | None:
     """Prompt for an optional positive integer."""
     while True:
-        raw = _prompt_text(prompt)
+        raw = _prompt_text(
+            prompt,
+            default=str(default) if default is not None else None,
+        )
         if not raw:
             return None
         try:
@@ -296,10 +341,13 @@ def _prompt_optional_int(prompt: str) -> int | None:
         return value
 
 
-def _prompt_saved_args() -> list[str]:
+def _prompt_saved_args(*, default: list[str] | None = None) -> list[str]:
     """Prompt for optional saved arguments."""
     while True:
-        raw = _prompt_text("Saved arguments")
+        raw = _prompt_text(
+            "Saved arguments",
+            default=" ".join(default or []),
+        )
         if not raw:
             return []
         try:
@@ -308,7 +356,10 @@ def _prompt_saved_args() -> list[str]:
             console.print(f"[red]Could not parse arguments:[/red] {exc}")
 
 
-def _prompt_execution_type() -> CatalogExecutionType:
+def _prompt_execution_type(
+    *,
+    default: CatalogExecutionType = CatalogExecutionType.PYTHON_SCRIPT,
+) -> CatalogExecutionType:
     """Prompt for the saved execution type."""
     aliases = {
         "python": CatalogExecutionType.PYTHON_SCRIPT,
@@ -323,7 +374,7 @@ def _prompt_execution_type() -> CatalogExecutionType:
     while True:
         raw = _prompt_text(
             "Execution type",
-            default=CatalogExecutionType.PYTHON_SCRIPT.value,
+            default=default.value,
         ).strip().lower()
         resolved = aliases.get(raw)
         if resolved is not None:
@@ -333,7 +384,10 @@ def _prompt_execution_type() -> CatalogExecutionType:
         )
 
 
-def _prompt_transport() -> CatalogSystemTransport:
+def _prompt_transport(
+    *,
+    default: CatalogSystemTransport = CatalogSystemTransport.LOCAL,
+) -> CatalogSystemTransport:
     """Prompt for the execution transport."""
     aliases = {
         "local": CatalogSystemTransport.LOCAL,
@@ -342,7 +396,7 @@ def _prompt_transport() -> CatalogSystemTransport:
     while True:
         raw = _prompt_text(
             "System transport",
-            default=CatalogSystemTransport.LOCAL.value,
+            default=default.value,
         ).strip().lower()
         resolved = aliases.get(raw)
         if resolved is not None:
@@ -350,47 +404,68 @@ def _prompt_transport() -> CatalogSystemTransport:
         console.print("[red]Choose one of: local, ssh.[/red]")
 
 
-def _prompt_keywords() -> list[str]:
+def _prompt_keywords(*, default: list[str] | None = None) -> list[str]:
     """Prompt for optional comma-separated keywords."""
-    raw = _prompt_text("Keywords (comma-separated)")
+    raw = _prompt_text(
+        "Keywords (comma-separated)",
+        default=", ".join(default or []),
+    )
     if not raw:
         return []
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
-def _prompt_catalog_system(alias: str) -> CatalogSystem:
+def _prompt_catalog_system(
+    alias: str,
+    *,
+    existing: CatalogSystem | None = None,
+) -> CatalogSystem:
     """Collect a new catalog system definition interactively."""
     console.print(
         f"[cyan]Creating new execution system '{alias}'.[/cyan]"
     )
-    transport = _prompt_transport()
-    description = _prompt_text("System description")
-    working_directory = _prompt_text("System working directory")
+    transport = _prompt_transport(
+        default=existing.transport if existing is not None else CatalogSystemTransport.LOCAL,
+    )
+    description = _prompt_text(
+        "System description",
+        default=existing.description if existing is not None else "",
+    )
+    working_directory = _prompt_text(
+        "System working directory",
+        default=existing.working_directory if existing is not None else "",
+    )
 
-    hostname = ""
-    ssh_config_host = ""
-    username = ""
-    port: int | None = None
-    credential_ref = ""
+    hostname = existing.hostname if existing is not None else ""
+    ssh_config_host = existing.ssh_config_host if existing is not None else ""
+    username = existing.username if existing is not None else ""
+    port: int | None = existing.port if existing is not None else None
+    credential_ref = existing.credential_ref if existing is not None else ""
 
     if transport == CatalogSystemTransport.SSH:
         while True:
-            hostname = _prompt_text("SSH hostname")
+            hostname = _prompt_text("SSH hostname", default=hostname)
             ssh_config_host = _prompt_text(
                 "SSH config host alias",
-                default=alias,
+                default=ssh_config_host or alias,
             )
             if hostname or ssh_config_host:
                 break
             console.print(
                 "[red]Enter a hostname or ssh config host alias.[/red]"
             )
-        username = _prompt_text("SSH username")
-        port = _prompt_optional_int("SSH port")
+        username = _prompt_text("SSH username", default=username)
+        port = _prompt_optional_int("SSH port", default=port)
         credential_ref = _prompt_text(
             "Credential reference",
-            default=f"ssh-config:{alias}" if ssh_config_host else "",
+            default=credential_ref or (f"ssh-config:{alias}" if ssh_config_host else ""),
         )
+    else:
+        hostname = ""
+        ssh_config_host = ""
+        username = ""
+        port = None
+        credential_ref = ""
 
     return CatalogSystem(
         alias=alias,
@@ -403,6 +478,81 @@ def _prompt_catalog_system(alias: str) -> CatalogSystem:
         working_directory=working_directory,
         credential_ref=credential_ref,
     )
+
+
+def _collect_catalog_entry(
+    repository: CatalogRepository,
+    request: str,
+    *,
+    existing_entry: CatalogEntry | None = None,
+) -> tuple[CatalogEntry, CatalogSystem | None] | None:
+    """Collect entry fields, optionally editing an existing definition."""
+    existing_alias = existing_entry.alias if existing_entry is not None else ""
+    alias = _prompt_required_text("Catalog alias", default=existing_alias or None)
+    while alias != existing_alias and repository.has_entry_alias(alias):
+        console.print(f"[red]Alias {alias!r} already exists.[/red]")
+        alias = _prompt_required_text("Catalog alias", default=existing_alias or None)
+
+    execution_type = _prompt_execution_type(
+        default=(
+            existing_entry.execution_type
+            if existing_entry is not None
+            else CatalogExecutionType.PYTHON_SCRIPT
+        )
+    )
+    default_target = (
+        existing_entry.target
+        if existing_entry is not None
+        else (
+            "scripts/"
+            if execution_type == CatalogExecutionType.PYTHON_SCRIPT
+            else "./bin/"
+        )
+    )
+    target = _prompt_required_text(
+        "Target path or executable",
+        default=default_target,
+    )
+
+    current_system_alias = existing_entry.system if existing_entry is not None else "local"
+    system_alias = _prompt_text("System alias", default=current_system_alias) or "local"
+
+    existing_system = repository.get_system(system_alias)
+    new_system: CatalogSystem | None = None
+    if existing_system is None:
+        new_system = _prompt_catalog_system(system_alias)
+
+    description = _prompt_text(
+        "Description",
+        default=(
+            existing_entry.description
+            if existing_entry is not None
+            else f"Saved from interactive request: {request}"
+        ),
+    )
+
+    entry = CatalogEntry(
+        alias=alias,
+        description=description,
+        execution_type=execution_type,
+        target=target,
+        system=system_alias,
+        args=_prompt_saved_args(
+            default=existing_entry.args if existing_entry is not None else None,
+        ),
+        keywords=_prompt_keywords(
+            default=existing_entry.keywords if existing_entry is not None else None,
+        ),
+        working_directory=_prompt_text(
+            "Entry working directory",
+            default=existing_entry.working_directory if existing_entry is not None else "",
+        ),
+        timeout=_prompt_optional_int(
+            "Timeout seconds",
+            default=existing_entry.timeout if existing_entry is not None else None,
+        ),
+    )
+    return entry, new_system
 
 
 def _render_catalog_registration_summary(
@@ -442,35 +592,10 @@ def _teach_catalog_entry(config: Config, request: str) -> CatalogEntry | None:
         return None
 
     repository = CatalogRepository(config.test_catalog_path)
-    alias = _prompt_required_text("Catalog alias")
-    while repository.has_entry_alias(alias):
-        console.print(f"[red]Alias {alias!r} already exists.[/red]")
-        alias = _prompt_required_text("Catalog alias")
-
-    execution_type = _prompt_execution_type()
-    default_target = "scripts/" if execution_type == CatalogExecutionType.PYTHON_SCRIPT else "./bin/"
-    target = _prompt_required_text("Target path or executable", default=default_target)
-    system_alias = _prompt_text("System alias", default="local") or "local"
-
-    new_system: CatalogSystem | None = None
-    if repository.get_system(system_alias) is None:
-        new_system = _prompt_catalog_system(system_alias)
-
-    description = _prompt_text(
-        "Description",
-        default=f"Saved from interactive request: {request}",
-    )
-    entry = CatalogEntry(
-        alias=alias,
-        description=description,
-        execution_type=execution_type,
-        target=target,
-        system=system_alias,
-        args=_prompt_saved_args(),
-        keywords=_prompt_keywords(),
-        working_directory=_prompt_text("Entry working directory"),
-        timeout=_prompt_optional_int("Timeout seconds"),
-    )
+    collected = _collect_catalog_entry(repository, request)
+    if collected is None:
+        return None
+    entry, new_system = collected
 
     _render_catalog_registration_summary(
         entry,
@@ -502,6 +627,145 @@ def _is_unknown_catalog_request(state: RunState) -> bool:
         and not state.execution_results
         and any("cataloged test definition" in error for error in state.errors)
     )
+
+
+def _print_catalog_entry_details(
+    entry: CatalogEntry,
+    *,
+    system: CatalogSystem | None = None,
+) -> None:
+    """Render one catalog entry to the terminal."""
+    console.print(f"[cyan]Catalog entry:[/cyan] {entry.alias}")
+    console.print(f"[dim]- type: {entry.execution_type.value}[/dim]")
+    console.print(f"[dim]- target: {entry.target}[/dim]")
+    console.print(f"[dim]- system: {entry.system}[/dim]")
+    if entry.description:
+        console.print(f"[dim]- description: {entry.description}[/dim]")
+    if entry.args:
+        console.print(f"[dim]- args: {' '.join(entry.args)}[/dim]")
+    if entry.keywords:
+        console.print(f"[dim]- keywords: {', '.join(entry.keywords)}[/dim]")
+    if entry.working_directory:
+        console.print(f"[dim]- working directory: {entry.working_directory}[/dim]")
+    if entry.timeout is not None:
+        console.print(f"[dim]- timeout: {entry.timeout}s[/dim]")
+    if system is not None:
+        console.print(
+            f"[dim]- transport: {system.transport.value}[/dim]"
+        )
+        if system.transport == CatalogSystemTransport.SSH:
+            if system.ssh_config_host:
+                console.print(
+                    f"[dim]- ssh config host: {system.ssh_config_host}[/dim]"
+                )
+            if system.hostname:
+                console.print(f"[dim]- hostname: {system.hostname}[/dim]")
+            if system.username:
+                console.print(f"[dim]- username: {system.username}[/dim]")
+
+
+def _handle_catalog_command(
+    command: CatalogCommand,
+    config: Config,
+    *,
+    allow_mutation: bool = True,
+) -> int:
+    """Handle local catalog-management commands."""
+    if not config.test_catalog_path:
+        console.print(
+            "[red]No catalog is configured for this repo.[/red]"
+        )
+        return 1
+
+    repository = CatalogRepository(config.test_catalog_path)
+
+    if command.action == "list":
+        entries = repository.list_entries()
+        if not entries:
+            console.print(
+                f"[yellow]No saved tests yet. Populate {config.test_catalog_path} to run tests.[/yellow]"
+            )
+            return 0
+        console.print(
+            f"[cyan]Saved tests in {config.test_catalog_path}:[/cyan]"
+        )
+        for entry in entries:
+            console.print(
+                f"[dim]- {entry.alias}: {entry.execution_type.value} on {entry.system} -> {entry.target}[/dim]"
+            )
+        return 0
+
+    if not command.alias:
+        console.print("[red]A catalog alias is required.[/red]")
+        return 1
+
+    entry = repository.get_entry(command.alias)
+    if entry is None:
+        console.print(
+            f"[red]Catalog entry {command.alias!r} does not exist in {config.test_catalog_path}.[/red]"
+        )
+        return 1
+
+    if command.action == "show":
+        _print_catalog_entry_details(
+            entry,
+            system=repository.get_system(entry.system),
+        )
+        return 0
+
+    if not allow_mutation:
+        console.print(
+            "[yellow]Dry run does not modify the catalog.[/yellow]"
+        )
+        return 1
+
+    if command.action == "delete":
+        if not _prompt_yes_no(
+            f"Delete saved test '{entry.alias}' from {config.test_catalog_path}?",
+            default=False,
+        ):
+            console.print("[yellow]Deletion canceled.[/yellow]")
+            return 1
+        deleted = repository.delete_entry(entry.alias)
+        if deleted is None:
+            console.print(f"[red]Catalog entry {entry.alias!r} no longer exists.[/red]")
+            return 1
+        console.print(
+            f"[green]Deleted catalog entry '{entry.alias}'.[/green]"
+        )
+        return 0
+
+    if command.action == "edit":
+        collected = _collect_catalog_entry(
+            repository,
+            f"edit {entry.alias}",
+            existing_entry=entry,
+        )
+        if collected is None:
+            return 1
+        updated_entry, new_system = collected
+        _render_catalog_registration_summary(
+            updated_entry,
+            system=new_system,
+            catalog_path=config.test_catalog_path,
+        )
+        if not _prompt_yes_no("Save these catalog changes now?", default=True):
+            console.print("[yellow]Edit canceled.[/yellow]")
+            return 1
+        try:
+            if new_system is not None:
+                repository.add_system(new_system)
+            repository.update_entry(entry.alias, updated_entry)
+        except ValueError as exc:
+            console.print(f"[red]Could not update catalog entry:[/red] {exc}")
+            return 1
+        console.print(
+            f"[green]Updated catalog entry '{updated_entry.alias}'.[/green]"
+        )
+        return 0
+
+    console.print(f"[red]Unsupported catalog action {command.action!r}.[/red]")
+    return 1
 
 
 def interactive_loop(*, dispatch_fn: RequestDispatcher | None = None) -> None:
@@ -817,6 +1081,14 @@ async def _handle_request(
     """Handle one validated request through dry-run or full orchestration."""
     if _maybe_handle_frontdoor_input(request):
         return 0
+
+    catalog_command = _parse_catalog_command(request)
+    if catalog_command is not None:
+        return _handle_catalog_command(
+            catalog_command,
+            config,
+            allow_mutation=not args.dry_run,
+        )
 
     _print_request_context(args, config, request)
 

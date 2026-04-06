@@ -6,7 +6,7 @@
 
 - A deterministic JSON-backed catalog resolver now auto-loads `registry/catalog.json` in this repo, so closed-world execution is now the default behavior here.
 - The shipped default catalog is intentionally empty, which is safe but not yet user-friendly.
-- The interactive CLI now has a first-pass registration dialogue for unknown requests, but the broader management story is still thin.
+- The interactive CLI now has a first-pass registration dialogue for unknown requests, and the CLI now supports basic entry management commands.
 - The next product gap is richer teaching and management of saved definitions, not basic enforcement.
 
 ### Dataiku Mesh Integration Is Only Partially Proven
@@ -36,7 +36,7 @@
 
 - The current interactive CLI can now collect and persist a new saved test definition after an unknown request, including a new system definition when needed.
 - The flow is still form-like and local to the terminal REPL rather than a richer chatbot/session capability.
-- There is still no edit/delete/list management flow for catalog entries from the chat surface.
+- There is now basic `list/show/edit/delete` management for catalog entries from the CLI front door, but no equivalent management flow yet for saved systems.
 
 ### Remote Execution Needs Hardening
 

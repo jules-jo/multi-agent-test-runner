@@ -124,5 +124,16 @@ The interactive CLI now includes a deterministic first-pass registration flow:
 Current limitations:
 
 - the prompts are form-like rather than natural-language extraction
-- there is no edit/delete/catalog-management flow yet
+- catalog management is still entry-focused; there is no equivalent `list systems`, `show system`, `edit system`, or `delete system` flow yet
 - there is no wiki page generation tied to catalog teaching yet
+
+## Management Commands
+
+The CLI now includes deterministic local catalog-management commands:
+
+- `list saved tests`
+- `show test <alias>`
+- `edit test <alias>`
+- `delete test <alias>`
+
+These commands operate directly on the JSON catalog and do not go through the orchestrator or intent parser.

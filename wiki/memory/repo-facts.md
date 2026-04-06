@@ -176,6 +176,14 @@
 - Source: `src/test_runner/cli.py` and `tests/test_cli.py`
 - Last verified: 2026-04-06
 
+## CLI Catalog Management
+
+- Fact: The CLI front door now supports deterministic local catalog-management commands for entries: `list saved tests`, `show test <alias>`, `edit test <alias>`, and `delete test <alias>`. These commands bypass the orchestrator and operate directly on the JSON catalog.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/cli.py`, `src/test_runner/catalog.py`, and `tests/test_cli.py`
+- Last verified: 2026-04-06
+
 ## Catalog Execution Types
 
 - Fact: The current machine-readable catalog supports saved `python_script` and `executable` definitions, and catalog mode ignores ad hoc extra args so execution stays bounded to the saved definition.

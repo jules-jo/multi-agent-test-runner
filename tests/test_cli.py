@@ -385,6 +385,148 @@ class TestAsyncMain:
         fake_hub.run.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_list_saved_tests_is_handled_locally(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+        fake_hub = SimpleNamespace(run=AsyncMock())
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            lambda config, args: fake_hub,
+        )
+
+        code = await async_main(["list saved tests"])
+
+        assert code == 0
+        fake_hub.run.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_show_test_is_handled_locally(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+        fake_hub = SimpleNamespace(run=AsyncMock())
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            lambda config, args: fake_hub,
+        )
+
+        code = await async_main(["show test lt"])
+
+        assert code == 0
+        fake_hub.run.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_delete_test_is_handled_locally(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+        fake_hub = SimpleNamespace(run=AsyncMock())
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            lambda config, args: fake_hub,
+        )
+        inputs = iter(["y"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+        code = await async_main(["delete test lt"])
+
+        assert code == 0
+        fake_hub.run.assert_not_awaited()
+        document = CatalogRepository(catalog_path).load_document()
+        assert document.entries == []
+
+    @pytest.mark.asyncio
+    async def test_edit_test_is_handled_locally(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                        args=["--quick"],
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+        fake_hub = SimpleNamespace(run=AsyncMock())
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            lambda config, args: fake_hub,
+        )
+        inputs = iter([
+            "",                   # alias
+            "",                   # execution type
+            "",                   # target
+            "",                   # system
+            "Updated smoke test", # description
+            "--quick --verbose",  # args
+            "lt test, smoke",     # keywords
+            "",                   # workdir
+            "120",                # timeout
+            "y",                  # save
+        ])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+        code = await async_main(["edit test lt"])
+
+        assert code == 0
+        fake_hub.run.assert_not_awaited()
+        entry = CatalogRepository(catalog_path).load_document().entries[0]
+        assert entry.description == "Updated smoke test"
+        assert entry.args == ["--quick", "--verbose"]
+        assert entry.timeout == 120
+
+    @pytest.mark.asyncio
     async def test_version_flag(self):
         with pytest.raises(SystemExit) as exc_info:
             await async_main(["-V"])

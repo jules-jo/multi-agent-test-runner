@@ -200,6 +200,55 @@ class TestCatalogRepositoryPersistence:
                 )
             )
 
+    def test_update_entry_replaces_existing_definition(self, tmp_path) -> None:
+        path = tmp_path / "catalog.json"
+        repo = CatalogRepository(path)
+        repo.save_document(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ]
+            )
+        )
+
+        repo.update_entry(
+            "lt",
+            CatalogEntry(
+                alias="lt",
+                execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                target="scripts/local_smoke.py",
+                args=["--quick"],
+            ),
+        )
+
+        loaded = repo.load_document()
+        assert loaded.entries[0].args == ["--quick"]
+
+    def test_delete_entry_removes_alias(self, tmp_path) -> None:
+        path = tmp_path / "catalog.json"
+        repo = CatalogRepository(path)
+        repo.save_document(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ]
+            )
+        )
+
+        deleted = repo.delete_entry("lt")
+
+        assert deleted is not None
+        assert deleted.alias == "lt"
+        assert repo.list_entries() == ()
+
 
 class TestCatalogRegistryTranslation:
     def test_python_script_entry_builds_saved_command(self) -> None:
