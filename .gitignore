@@ -1,0 +1,22 @@
+# Local environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Editor swap files
+*.swp
+*.swo
+
+# Python virtualenvs and caches
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+
+# Packaging artifacts
+*.egg-info/
+build/
+dist/
+
+# Local tool state
+.claude/
