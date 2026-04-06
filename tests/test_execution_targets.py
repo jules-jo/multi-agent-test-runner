@@ -254,8 +254,29 @@ class TestSSHTarget:
             SSHConfig(alias="lab-a", hostname="lab-a.internal.example"),
         )
 
+        seen_commands: list[list[str]] = []
+
         async def fake_execute(command, *, working_directory="", env=None, timeout=None):
+            seen_commands.append(command)
+            if command[:2] == ["ssh", "-V"]:
+                return ExecutionResult(
+                    status=ExecutionStatus.PASSED,
+                    exit_code=0,
+                    stdout="",
+                    stderr="OpenSSH_9.0",
+                    duration_seconds=0.1,
+                    command_display="ssh -V",
+                )
             assert command[0] == "ssh"
+            if command[-1] == "true":
+                return ExecutionResult(
+                    status=ExecutionStatus.PASSED,
+                    exit_code=0,
+                    stdout="",
+                    stderr="",
+                    duration_seconds=0.1,
+                    command_display=" ".join(command),
+                )
             return ExecutionResult(
                 status=ExecutionStatus.PASSED,
                 exit_code=0,
@@ -273,6 +294,62 @@ class TestSSHTarget:
         assert result.stdout == "remote-ok"
         assert result.metadata["target"] == "ssh:lab-a"
         assert result.metadata["transport"] == "ssh"
+        assert seen_commands[0] == ["ssh", "-V"]
+
+    @pytest.mark.asyncio
+    async def test_execute_reports_missing_ssh_client_as_preflight_error(self, monkeypatch):
+        target = SSHTarget(
+            SSHConfig(alias="lab-a", hostname="lab-a.internal.example"),
+        )
+
+        async def fake_execute(command, *, working_directory="", env=None, timeout=None):
+            if command[:2] == ["ssh", "-V"]:
+                return ExecutionResult(
+                    status=ExecutionStatus.ERROR,
+                    exit_code=-1,
+                    stdout="",
+                    stderr="Command not found: ssh",
+                    duration_seconds=0.1,
+                    command_display="ssh -V",
+                )
+            raise AssertionError("preflight should stop before remote execution")
+
+        monkeypatch.setattr(target._local, "execute", fake_execute)
+
+        result = await target.execute(["./bin/device-check"], timeout=30)
+
+        assert result.status == ExecutionStatus.ERROR
+        assert "SSH preflight failed" in result.stderr
+        assert result.metadata["ssh_preflight"] == "client"
+
+    @pytest.mark.asyncio
+    async def test_health_check_fails_when_destination_is_unreachable(self, monkeypatch):
+        target = SSHTarget(
+            SSHConfig(alias="lab-a", hostname="lab-a.internal.example"),
+        )
+
+        async def fake_execute(command, *, working_directory="", env=None, timeout=None):
+            if command[:2] == ["ssh", "-V"]:
+                return ExecutionResult(
+                    status=ExecutionStatus.PASSED,
+                    exit_code=0,
+                    stdout="",
+                    stderr="OpenSSH_9.0",
+                    duration_seconds=0.1,
+                    command_display="ssh -V",
+                )
+            return ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                exit_code=255,
+                stdout="",
+                stderr="ssh: connect to host lab-a.internal.example port 22: Connection timed out",
+                duration_seconds=0.1,
+                command_display=" ".join(command),
+            )
+
+        monkeypatch.setattr(target._local, "execute", fake_execute)
+
+        assert not await target.health_check()
 
 
 class TestDockerTarget:

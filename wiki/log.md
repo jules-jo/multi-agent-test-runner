@@ -43,5 +43,8 @@
 - Made `registry/catalog.json` the repo-local default catalog path, added an explicit empty-string opt-out for tests and legacy flows, and documented that the shipped default catalog is intentionally empty.
 - Added a first-pass interactive catalog teaching flow in the CLI so unknown requests can be turned into saved catalog entries and optionally rerun immediately.
 - Added deterministic CLI catalog-management commands for listing, showing, editing, and deleting saved test entries without going through the orchestrator.
+- Added deterministic CLI system-management commands for listing, showing, editing, and deleting saved execution systems without going through the orchestrator.
+- Added basic SSH preflight so remote execution now checks the local `ssh` client and saved destination before running the real remote command.
+- Re-ran the main regression bundle successfully after system-management and SSH-preflight work: `329 passed, 16 warnings`.
 - Added a run note for cloning and project-scoped setup of `oh-my-codex`, including verification output and remaining host dependency gaps (`cargo`, `tmux`).
 - Extended the `oh-my-codex` run note with the standalone global OMX install, PATH location, and final global verification result.

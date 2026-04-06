@@ -36,13 +36,14 @@
 
 - The current interactive CLI can now collect and persist a new saved test definition after an unknown request, including a new system definition when needed.
 - The flow is still form-like and local to the terminal REPL rather than a richer chatbot/session capability.
-- There is now basic `list/show/edit/delete` management for catalog entries from the CLI front door, but no equivalent management flow yet for saved systems.
+- There is now basic `list/show/edit/delete` management for both catalog entries and saved systems from the CLI front door, but the UX is still prompt-form based rather than conversational.
 
 ### Remote Execution Needs Hardening
 
 - The authoritative catalog schema now includes named `ssh` systems and references from test entries to those systems.
 - The execution layer now includes an `SSHTarget`, so cataloged remote commands can execute through the local `ssh` client.
-- What is still missing is operational hardening: preflight SSH checks, better remote environment/bootstrap handling, artifact collection, and clearer user-facing remediation when SSH is unavailable or misconfigured.
+- Basic deterministic SSH preflight now exists, including local `ssh` client availability checks and short remote reachability checks.
+- What is still missing is broader operational hardening: better remote environment/bootstrap handling, artifact collection, richer remediation guidance, and more real-world validation against remote hosts.
 
 ## Tracking Note
 

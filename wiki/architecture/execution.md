@@ -71,3 +71,7 @@ Remote nuance:
 - local-only PATH injection is not applied to cataloged `ssh` commands
 - local default working-directory fallback is not injected into cataloged `ssh` commands
 - remote commands run through the local `ssh` client using saved host metadata from the catalog
+- `SSHTarget` now performs a basic deterministic preflight before remote execution:
+  - verify that the local `ssh` client is available
+  - verify that the saved destination is reachable in batch mode with a short timeout
+- preflight failures are surfaced as infrastructure errors with explicit SSH context instead of opaque subprocess launch failures

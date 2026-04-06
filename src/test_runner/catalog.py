@@ -456,6 +456,12 @@ class CatalogRepository:
             )
         return None
 
+    def list_systems(self) -> tuple[CatalogSystem, ...]:
+        """Return saved systems plus the implicit local system when needed."""
+        document = self.load_document()
+        registry = CatalogRegistry([], systems=document.systems)
+        return registry.systems
+
     def list_entries(self) -> tuple[CatalogEntry, ...]:
         """Return saved entries sorted by alias."""
         document = self.load_document()
@@ -486,6 +492,52 @@ class CatalogRepository:
             entries=document.entries,
         )
         return self.save_document(updated)
+
+    def update_system(
+        self,
+        existing_alias: str,
+        updated_system: CatalogSystem,
+    ) -> CatalogDocument:
+        """Replace an existing system definition."""
+        document = self.load_document()
+        existing_key = CatalogRegistry._normalize_phrase(existing_alias)
+        updated_key = CatalogRegistry._normalize_phrase(updated_system.alias)
+        replacement_index: int | None = None
+
+        for index, system in enumerate(document.systems):
+            system_key = CatalogRegistry._normalize_phrase(system.alias)
+            if system_key == existing_key:
+                replacement_index = index
+                continue
+            if system_key == updated_key:
+                raise ValueError(
+                    f"Catalog system alias {updated_system.alias!r} already exists.",
+                )
+
+        if replacement_index is None:
+            raise ValueError(f"Catalog system alias {existing_alias!r} does not exist.")
+
+        if updated_key != existing_key:
+            referenced_by = sorted(
+                entry.alias
+                for entry in document.entries
+                if CatalogRegistry._normalize_phrase(entry.system) == existing_key
+            )
+            if referenced_by:
+                refs = ", ".join(referenced_by)
+                raise ValueError(
+                    f"Cannot rename system {existing_alias!r} because saved test(s) "
+                    f"still reference it: {refs}.",
+                )
+
+        updated_systems = list(document.systems)
+        updated_systems[replacement_index] = updated_system
+        updated_document = CatalogDocument(
+            version=document.version,
+            systems=updated_systems,
+            entries=document.entries,
+        )
+        return self.save_document(updated_document)
 
     def add_entry(self, entry: CatalogEntry) -> CatalogDocument:
         """Persist a new runnable entry."""
@@ -566,3 +618,41 @@ class CatalogRepository:
         )
         self.save_document(updated_document)
         return deleted_entry
+
+    def delete_system(self, alias: str) -> CatalogSystem | None:
+        """Delete one system by alias and return it.
+
+        Refuse deletion while saved tests still reference the system.
+        """
+        document = self.load_document()
+        normalized = CatalogRegistry._normalize_phrase(alias)
+        referenced_by = sorted(
+            entry.alias
+            for entry in document.entries
+            if CatalogRegistry._normalize_phrase(entry.system) == normalized
+        )
+        if referenced_by:
+            refs = ", ".join(referenced_by)
+            raise ValueError(
+                f"Catalog system {alias!r} is still referenced by saved test(s): {refs}.",
+            )
+
+        kept_systems: list[CatalogSystem] = []
+        deleted_system: CatalogSystem | None = None
+
+        for system in document.systems:
+            if CatalogRegistry._normalize_phrase(system.alias) == normalized:
+                deleted_system = system
+                continue
+            kept_systems.append(system)
+
+        if deleted_system is None:
+            return None
+
+        updated_document = CatalogDocument(
+            version=document.version,
+            systems=kept_systems,
+            entries=document.entries,
+        )
+        self.save_document(updated_document)
+        return deleted_system

@@ -15,6 +15,8 @@ from test_runner.catalog import (
     CatalogEntry,
     CatalogExecutionType,
     CatalogRepository,
+    CatalogSystem,
+    CatalogSystemTransport,
 )
 from test_runner.cli import (
     InputValidationError,
@@ -525,6 +527,149 @@ class TestAsyncMain:
         assert entry.description == "Updated smoke test"
         assert entry.args == ["--quick", "--verbose"]
         assert entry.timeout == 120
+
+    @pytest.mark.asyncio
+    async def test_list_systems_is_handled_locally(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                systems=[
+                    CatalogSystem(
+                        alias="lab-a",
+                        transport=CatalogSystemTransport.SSH,
+                        hostname="lab-a.example",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+        fake_hub = SimpleNamespace(run=AsyncMock())
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            lambda config, args: fake_hub,
+        )
+
+        code = await async_main(["list systems"])
+
+        assert code == 0
+        fake_hub.run.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_show_system_is_handled_locally(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                systems=[
+                    CatalogSystem(
+                        alias="lab-a",
+                        transport=CatalogSystemTransport.SSH,
+                        hostname="lab-a.example",
+                        username="runner",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+        fake_hub = SimpleNamespace(run=AsyncMock())
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            lambda config, args: fake_hub,
+        )
+
+        code = await async_main(["show system lab-a"])
+
+        assert code == 0
+        fake_hub.run.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_edit_system_is_handled_locally(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                systems=[
+                    CatalogSystem(
+                        alias="lab-a",
+                        transport=CatalogSystemTransport.SSH,
+                        hostname="lab-a.example",
+                        username="runner",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+        fake_hub = SimpleNamespace(run=AsyncMock())
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            lambda config, args: fake_hub,
+        )
+        inputs = iter([
+            "",                   # transport
+            "Updated lab",        # description
+            "/opt/tests",         # working directory
+            "",                   # hostname
+            "",                   # ssh config host
+            "runner2",            # username
+            "2201",               # port
+            "ssh-config:lab-a",   # credential ref
+            "y",                  # save
+        ])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+        code = await async_main(["edit system lab-a"])
+
+        assert code == 0
+        fake_hub.run.assert_not_awaited()
+        system = CatalogRepository(catalog_path).get_system("lab-a")
+        assert system is not None
+        assert system.description == "Updated lab"
+        assert system.working_directory == "/opt/tests"
+        assert system.username == "runner2"
+        assert system.port == 2201
+
+    @pytest.mark.asyncio
+    async def test_delete_system_is_handled_locally(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                systems=[
+                    CatalogSystem(
+                        alias="lab-a",
+                        transport=CatalogSystemTransport.SSH,
+                        hostname="lab-a.example",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+        fake_hub = SimpleNamespace(run=AsyncMock())
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            lambda config, args: fake_hub,
+        )
+        inputs = iter(["y"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+        code = await async_main(["delete system lab-a"])
+
+        assert code == 0
+        fake_hub.run.assert_not_awaited()
+        assert CatalogRepository(catalog_path).get_system("lab-a") is None
 
     @pytest.mark.asyncio
     async def test_version_flag(self):

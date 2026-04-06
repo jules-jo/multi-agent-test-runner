@@ -205,6 +205,7 @@ class RequestDispatcher(Protocol):
 class CatalogCommand:
     """Parsed local catalog-management command."""
 
+    resource: str
     action: str
     alias: str = ""
 
@@ -229,6 +230,10 @@ def _print_frontdoor_help() -> None:
     console.print("[dim]- show test lt[/dim]")
     console.print("[dim]- edit test lt[/dim]")
     console.print("[dim]- delete test lt[/dim]")
+    console.print("[dim]- list systems[/dim]")
+    console.print("[dim]- show system lab-a[/dim]")
+    console.print("[dim]- edit system lab-a[/dim]")
+    console.print("[dim]- delete system lab-a[/dim]")
     console.print("[dim]Use `quit` to leave interactive mode.[/dim]")
 
 
@@ -272,10 +277,29 @@ def _parse_catalog_command(text: str) -> CatalogCommand | None:
         "list catalog",
         "list catalog tests",
     }:
-        return CatalogCommand(action="list")
+        return CatalogCommand(resource="entry", action="list")
+
+    if normalized in {
+        "list systems",
+        "list saved systems",
+        "list catalog systems",
+    }:
+        return CatalogCommand(resource="system", action="list")
 
     match = re.match(
         r"^(show|edit|delete|remove)\s+(?:saved\s+)?test\s+(.+?)\s*$",
+        stripped,
+        flags=re.IGNORECASE,
+    )
+    if match is not None:
+        action = match.group(1).lower()
+        alias = match.group(2).strip()
+        if action == "remove":
+            action = "delete"
+        return CatalogCommand(resource="entry", action=action, alias=alias)
+
+    match = re.match(
+        r"^(show|edit|delete|remove)\s+(?:saved\s+)?system\s+(.+?)\s*$",
         stripped,
         flags=re.IGNORECASE,
     )
@@ -286,7 +310,7 @@ def _parse_catalog_command(text: str) -> CatalogCommand | None:
     alias = match.group(2).strip()
     if action == "remove":
         action = "delete"
-    return CatalogCommand(action=action, alias=alias)
+    return CatalogCommand(resource="system", action=action, alias=alias)
 
 
 def _prompt_text(prompt: str, *, default: str | None = None) -> str:
@@ -664,6 +688,27 @@ def _print_catalog_entry_details(
                 console.print(f"[dim]- username: {system.username}[/dim]")
 
 
+def _print_catalog_system_details(system: CatalogSystem) -> None:
+    """Render one catalog system to the terminal."""
+    console.print(f"[cyan]Catalog system:[/cyan] {system.alias}")
+    console.print(f"[dim]- transport: {system.transport.value}[/dim]")
+    if system.description:
+        console.print(f"[dim]- description: {system.description}[/dim]")
+    if system.working_directory:
+        console.print(f"[dim]- working directory: {system.working_directory}[/dim]")
+    if system.transport == CatalogSystemTransport.SSH:
+        if system.ssh_config_host:
+            console.print(f"[dim]- ssh config host: {system.ssh_config_host}[/dim]")
+        if system.hostname:
+            console.print(f"[dim]- hostname: {system.hostname}[/dim]")
+        if system.username:
+            console.print(f"[dim]- username: {system.username}[/dim]")
+        if system.port is not None:
+            console.print(f"[dim]- port: {system.port}[/dim]")
+        if system.credential_ref:
+            console.print(f"[dim]- credential ref: {system.credential_ref}[/dim]")
+
+
 def _handle_catalog_command(
     command: CatalogCommand,
     config: Config,
@@ -679,90 +724,174 @@ def _handle_catalog_command(
 
     repository = CatalogRepository(config.test_catalog_path)
 
-    if command.action == "list":
-        entries = repository.list_entries()
-        if not entries:
+    if command.resource == "entry":
+        if command.action == "list":
+            entries = repository.list_entries()
+            if not entries:
+                console.print(
+                    f"[yellow]No saved tests yet. Populate {config.test_catalog_path} to run tests.[/yellow]"
+                )
+                return 0
             console.print(
-                f"[yellow]No saved tests yet. Populate {config.test_catalog_path} to run tests.[/yellow]"
+                f"[cyan]Saved tests in {config.test_catalog_path}:[/cyan]"
+            )
+            for entry in entries:
+                console.print(
+                    f"[dim]- {entry.alias}: {entry.execution_type.value} on {entry.system} -> {entry.target}[/dim]"
+                )
+            return 0
+
+        if not command.alias:
+            console.print("[red]A catalog alias is required.[/red]")
+            return 1
+
+        entry = repository.get_entry(command.alias)
+        if entry is None:
+            console.print(
+                f"[red]Catalog entry {command.alias!r} does not exist in {config.test_catalog_path}.[/red]"
+            )
+            return 1
+
+        if command.action == "show":
+            _print_catalog_entry_details(
+                entry,
+                system=repository.get_system(entry.system),
             )
             return 0
-        console.print(
-            f"[cyan]Saved tests in {config.test_catalog_path}:[/cyan]"
-        )
-        for entry in entries:
+
+        if not allow_mutation:
             console.print(
-                f"[dim]- {entry.alias}: {entry.execution_type.value} on {entry.system} -> {entry.target}[/dim]"
+                "[yellow]Dry run does not modify the catalog.[/yellow]"
             )
-        return 0
+            return 1
 
-    if not command.alias:
-        console.print("[red]A catalog alias is required.[/red]")
+        if command.action == "delete":
+            if not _prompt_yes_no(
+                f"Delete saved test '{entry.alias}' from {config.test_catalog_path}?",
+                default=False,
+            ):
+                console.print("[yellow]Deletion canceled.[/yellow]")
+                return 1
+            deleted = repository.delete_entry(entry.alias)
+            if deleted is None:
+                console.print(f"[red]Catalog entry {entry.alias!r} no longer exists.[/red]")
+                return 1
+            console.print(
+                f"[green]Deleted catalog entry '{entry.alias}'.[/green]"
+            )
+            return 0
+
+        if command.action == "edit":
+            collected = _collect_catalog_entry(
+                repository,
+                f"edit {entry.alias}",
+                existing_entry=entry,
+            )
+            if collected is None:
+                return 1
+            updated_entry, new_system = collected
+            _render_catalog_registration_summary(
+                updated_entry,
+                system=new_system,
+                catalog_path=config.test_catalog_path,
+            )
+            if not _prompt_yes_no("Save these catalog changes now?", default=True):
+                console.print("[yellow]Edit canceled.[/yellow]")
+                return 1
+            try:
+                if new_system is not None:
+                    repository.add_system(new_system)
+                repository.update_entry(entry.alias, updated_entry)
+            except ValueError as exc:
+                console.print(f"[red]Could not update catalog entry:[/red] {exc}")
+                return 1
+            console.print(
+                f"[green]Updated catalog entry '{updated_entry.alias}'.[/green]"
+            )
+            return 0
+
+        console.print(f"[red]Unsupported catalog action {command.action!r}.[/red]")
         return 1
 
-    entry = repository.get_entry(command.alias)
-    if entry is None:
-        console.print(
-            f"[red]Catalog entry {command.alias!r} does not exist in {config.test_catalog_path}.[/red]"
-        )
+    if command.resource == "system":
+        if command.action == "list":
+            systems = repository.list_systems()
+            if not systems:
+                console.print(
+                    f"[yellow]No saved systems yet in {config.test_catalog_path}.[/yellow]"
+                )
+                return 0
+            console.print(
+                f"[cyan]Saved systems in {config.test_catalog_path}:[/cyan]"
+            )
+            for system in systems:
+                location = system.ssh_config_host or system.hostname or "current host"
+                console.print(
+                    f"[dim]- {system.alias}: {system.transport.value} -> {location}[/dim]"
+                )
+            return 0
+
+        if not command.alias:
+            console.print("[red]A system alias is required.[/red]")
+            return 1
+        system = repository.get_system(command.alias)
+        if system is None:
+            console.print(
+                f"[red]Catalog system {command.alias!r} does not exist in {config.test_catalog_path}.[/red]"
+            )
+            return 1
+
+        if command.action == "show":
+            _print_catalog_system_details(system)
+            return 0
+
+        if not allow_mutation:
+            console.print(
+                "[yellow]Dry run does not modify the catalog.[/yellow]"
+            )
+            return 1
+
+        if command.action == "delete":
+            if not _prompt_yes_no(
+                f"Delete saved system '{system.alias}' from {config.test_catalog_path}?",
+                default=False,
+            ):
+                console.print("[yellow]Deletion canceled.[/yellow]")
+                return 1
+            try:
+                deleted = repository.delete_system(system.alias)
+            except ValueError as exc:
+                console.print(f"[red]Could not delete catalog system:[/red] {exc}")
+                return 1
+            if deleted is None:
+                console.print(f"[red]Catalog system {system.alias!r} no longer exists.[/red]")
+                return 1
+            console.print(
+                f"[green]Deleted catalog system '{system.alias}'.[/green]"
+            )
+            return 0
+
+        if command.action == "edit":
+            updated_system = _prompt_catalog_system(
+                system.alias,
+                existing=system,
+            )
+            _print_catalog_system_details(updated_system)
+            if not _prompt_yes_no("Save these system changes now?", default=True):
+                console.print("[yellow]Edit canceled.[/yellow]")
+                return 1
+            try:
+                repository.update_system(system.alias, updated_system)
+            except ValueError as exc:
+                console.print(f"[red]Could not update catalog system:[/red] {exc}")
+                return 1
+            console.print(
+                f"[green]Updated catalog system '{updated_system.alias}'.[/green]"
+            )
+            return 0
+
+        console.print(f"[red]Unsupported catalog action {command.action!r}.[/red]")
         return 1
-
-    if command.action == "show":
-        _print_catalog_entry_details(
-            entry,
-            system=repository.get_system(entry.system),
-        )
-        return 0
-
-    if not allow_mutation:
-        console.print(
-            "[yellow]Dry run does not modify the catalog.[/yellow]"
-        )
-        return 1
-
-    if command.action == "delete":
-        if not _prompt_yes_no(
-            f"Delete saved test '{entry.alias}' from {config.test_catalog_path}?",
-            default=False,
-        ):
-            console.print("[yellow]Deletion canceled.[/yellow]")
-            return 1
-        deleted = repository.delete_entry(entry.alias)
-        if deleted is None:
-            console.print(f"[red]Catalog entry {entry.alias!r} no longer exists.[/red]")
-            return 1
-        console.print(
-            f"[green]Deleted catalog entry '{entry.alias}'.[/green]"
-        )
-        return 0
-
-    if command.action == "edit":
-        collected = _collect_catalog_entry(
-            repository,
-            f"edit {entry.alias}",
-            existing_entry=entry,
-        )
-        if collected is None:
-            return 1
-        updated_entry, new_system = collected
-        _render_catalog_registration_summary(
-            updated_entry,
-            system=new_system,
-            catalog_path=config.test_catalog_path,
-        )
-        if not _prompt_yes_no("Save these catalog changes now?", default=True):
-            console.print("[yellow]Edit canceled.[/yellow]")
-            return 1
-        try:
-            if new_system is not None:
-                repository.add_system(new_system)
-            repository.update_entry(entry.alias, updated_entry)
-        except ValueError as exc:
-            console.print(f"[red]Could not update catalog entry:[/red] {exc}")
-            return 1
-        console.print(
-            f"[green]Updated catalog entry '{updated_entry.alias}'.[/green]"
-        )
-        return 0
 
     console.print(f"[red]Unsupported catalog action {command.action!r}.[/red]")
     return 1

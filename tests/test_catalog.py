@@ -159,6 +159,15 @@ class TestCatalogRegistryMatching:
 
 
 class TestCatalogRepositoryPersistence:
+    def test_list_systems_includes_local_fallback(self, tmp_path) -> None:
+        path = tmp_path / "catalog.json"
+        repo = CatalogRepository(path)
+        repo.save_document(CatalogDocument())
+
+        systems = repo.list_systems()
+
+        assert tuple(system.alias for system in systems) == ("local",)
+
     def test_add_system_and_entry_persists_to_disk(self, tmp_path) -> None:
         path = tmp_path / "catalog.json"
         repo = CatalogRepository(path)
@@ -228,6 +237,35 @@ class TestCatalogRepositoryPersistence:
         loaded = repo.load_document()
         assert loaded.entries[0].args == ["--quick"]
 
+    def test_update_system_replaces_existing_definition(self, tmp_path) -> None:
+        path = tmp_path / "catalog.json"
+        repo = CatalogRepository(path)
+        repo.save_document(
+            CatalogDocument(
+                systems=[
+                    CatalogSystem(
+                        alias="lab-a",
+                        transport=CatalogSystemTransport.SSH,
+                        hostname="old.example",
+                    )
+                ]
+            )
+        )
+
+        repo.update_system(
+            "lab-a",
+            CatalogSystem(
+                alias="lab-a",
+                transport=CatalogSystemTransport.SSH,
+                hostname="new.example",
+                username="runner",
+            ),
+        )
+
+        loaded = repo.load_document()
+        assert loaded.systems[0].hostname == "new.example"
+        assert loaded.systems[0].username == "runner"
+
     def test_delete_entry_removes_alias(self, tmp_path) -> None:
         path = tmp_path / "catalog.json"
         repo = CatalogRepository(path)
@@ -248,6 +286,53 @@ class TestCatalogRepositoryPersistence:
         assert deleted is not None
         assert deleted.alias == "lt"
         assert repo.list_entries() == ()
+
+    def test_delete_system_rejects_referenced_alias(self, tmp_path) -> None:
+        path = tmp_path / "catalog.json"
+        repo = CatalogRepository(path)
+        repo.save_document(
+            CatalogDocument(
+                systems=[
+                    CatalogSystem(
+                        alias="lab-a",
+                        transport=CatalogSystemTransport.SSH,
+                        hostname="lab-a.example",
+                    )
+                ],
+                entries=[
+                    CatalogEntry(
+                        alias="device-check",
+                        execution_type=CatalogExecutionType.EXECUTABLE,
+                        target="./bin/device-check",
+                        system="lab-a",
+                    )
+                ],
+            )
+        )
+
+        with pytest.raises(ValueError, match="still referenced"):
+            repo.delete_system("lab-a")
+
+    def test_delete_system_removes_alias(self, tmp_path) -> None:
+        path = tmp_path / "catalog.json"
+        repo = CatalogRepository(path)
+        repo.save_document(
+            CatalogDocument(
+                systems=[
+                    CatalogSystem(
+                        alias="lab-a",
+                        transport=CatalogSystemTransport.SSH,
+                        hostname="lab-a.example",
+                    )
+                ]
+            )
+        )
+
+        deleted = repo.delete_system("lab-a")
+
+        assert deleted is not None
+        assert deleted.alias == "lab-a"
+        assert tuple(system.alias for system in repo.list_systems()) == ("local",)
 
 
 class TestCatalogRegistryTranslation:

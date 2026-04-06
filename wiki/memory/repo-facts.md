@@ -16,6 +16,14 @@
 - Source: `./.venv/bin/pytest -q`
 - Last verified: 2026-04-06
 
+## Main Regression Bundle Status
+
+- Fact: The main regression bundle covering config, catalog, intent service, CLI, parser, execution targets, execution attempts, orchestrator delegation wiring, and troubleshooter wiring is passing at `329 passed, 16 warnings`.
+- Scope: runtime
+- Confidence: high
+- Source: `./.venv/bin/pytest -q tests/test_config.py tests/test_catalog.py tests/test_intent_service.py tests/test_cli.py tests/test_parser.py tests/test_execution_targets.py tests/test_execution_attempts.py tests/test_orchestrator_delegation_wiring.py tests/test_troubleshooter_wiring.py`
+- Last verified: 2026-04-06
+
 ## CLI Integration Status
 
 - Fact: The one-shot, piped, and terminal interactive CLI paths now dispatch real runs through `OrchestratorHub`.
@@ -184,6 +192,14 @@
 - Source: `src/test_runner/cli.py`, `src/test_runner/catalog.py`, and `tests/test_cli.py`
 - Last verified: 2026-04-06
 
+## CLI System Management
+
+- Fact: The CLI front door now also supports deterministic local system-management commands: `list systems`, `show system <alias>`, `edit system <alias>`, and `delete system <alias>`. These commands bypass the orchestrator and operate directly on the JSON catalog.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/cli.py`, `src/test_runner/catalog.py`, and `tests/test_cli.py`
+- Last verified: 2026-04-06
+
 ## Catalog Execution Types
 
 - Fact: The current machine-readable catalog supports saved `python_script` and `executable` definitions, and catalog mode ignores ad hoc extra args so execution stays bounded to the saved definition.
@@ -214,6 +230,14 @@
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/catalog.py` and `src/test_runner/orchestrator/hub.py`
+- Last verified: 2026-04-06
+
+## SSH Preflight
+
+- Fact: `SSHTarget` now performs a basic deterministic preflight before remote execution by checking that the local `ssh` client is available and that the saved destination is reachable in batch mode with a short timeout.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/execution/targets.py` and `tests/test_execution_targets.py`
 - Last verified: 2026-04-06
 
 ## Catalog Dry-Run Behavior

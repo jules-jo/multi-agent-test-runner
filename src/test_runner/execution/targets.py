@@ -481,30 +481,40 @@ class SSHTarget(ExecutionTarget):
         )
         return ssh_command
 
-    async def execute(
+    def _build_ssh_base_command(self) -> list[str]:
+        ssh_command = ["ssh"]
+        if self._config.batch_mode:
+            ssh_command.extend(["-o", "BatchMode=yes"])
+        if self._config.port is not None and not self._config.ssh_config_host:
+            ssh_command.extend(["-p", str(self._config.port)])
+        ssh_command.extend(self._config.extra_args)
+        ssh_command.append(self.destination)
+        return ssh_command
+
+    @staticmethod
+    def _preflight_timeout(timeout: int | None) -> int:
+        if timeout is None:
+            return 10
+        return max(1, min(timeout, 10))
+
+    def _finalize_result(
         self,
-        command: list[str],
+        result: ExecutionResult,
         *,
-        working_directory: str = "",
-        env: dict[str, str] | None = None,
-        timeout: int | None = None,
+        command: list[str],
+        extra_metadata: dict[str, Any] | None = None,
     ) -> ExecutionResult:
-        ssh_command = self._build_ssh_command(
-            command,
-            working_directory=working_directory,
-            env=env,
-        )
-        result = await self._local.execute(ssh_command, timeout=timeout)
         metadata = dict(result.metadata)
         metadata.update(
             {
                 "target": self.name,
                 "transport": "ssh",
                 "ssh_destination": self.destination,
-                "ssh_command": " ".join(ssh_command),
                 "credential_ref": self._config.credential_ref,
             }
         )
+        if extra_metadata:
+            metadata.update(extra_metadata)
         return ExecutionResult(
             status=result.status,
             exit_code=result.exit_code,
@@ -516,6 +526,92 @@ class SSHTarget(ExecutionTarget):
             metadata=metadata,
         )
 
+    async def _run_preflight(
+        self,
+        *,
+        timeout: int | None,
+    ) -> ExecutionResult | None:
+        client_check = await self._local.execute(
+            ["ssh", "-V"],
+            timeout=self._preflight_timeout(timeout),
+        )
+        if not client_check.success:
+            stderr = client_check.stderr or client_check.stdout or "Unknown ssh client error."
+            return self._finalize_result(
+                ExecutionResult(
+                    status=ExecutionStatus.ERROR,
+                    exit_code=client_check.exit_code,
+                    stdout=client_check.stdout,
+                    stderr=f"SSH preflight failed: local ssh client is unavailable. {stderr}",
+                    duration_seconds=client_check.duration_seconds,
+                    command_display="ssh -V",
+                    attempt=client_check.attempt,
+                    metadata=dict(client_check.metadata),
+                ),
+                command=["ssh", self.destination],
+                extra_metadata={"ssh_preflight": "client"},
+            )
+
+        preflight_command = [
+            *self._build_ssh_base_command(),
+            "-o",
+            f"ConnectTimeout={self._preflight_timeout(timeout)}",
+            "true",
+        ]
+        destination_check = await self._local.execute(
+            preflight_command,
+            timeout=self._preflight_timeout(timeout),
+        )
+        if destination_check.success:
+            return None
+
+        stderr = destination_check.stderr or destination_check.stdout or "Unknown remote connectivity error."
+        return self._finalize_result(
+            ExecutionResult(
+                status=ExecutionStatus.ERROR,
+                exit_code=destination_check.exit_code,
+                stdout=destination_check.stdout,
+                stderr=(
+                    f"SSH preflight failed for {self.destination}: {stderr}"
+                ),
+                duration_seconds=destination_check.duration_seconds,
+                command_display=" ".join(preflight_command),
+                attempt=destination_check.attempt,
+                metadata=dict(destination_check.metadata),
+            ),
+            command=["ssh", self.destination],
+            extra_metadata={
+                "ssh_preflight": "destination",
+                "ssh_preflight_command": " ".join(preflight_command),
+            },
+        )
+
+    async def execute(
+        self,
+        command: list[str],
+        *,
+        working_directory: str = "",
+        env: dict[str, str] | None = None,
+        timeout: int | None = None,
+    ) -> ExecutionResult:
+        preflight_result = await self._run_preflight(timeout=timeout)
+        if preflight_result is not None:
+            return preflight_result
+
+        ssh_command = self._build_ssh_command(
+            command,
+            working_directory=working_directory,
+            env=env,
+        )
+        result = await self._local.execute(ssh_command, timeout=timeout)
+        return self._finalize_result(
+            result,
+            command=command,
+            extra_metadata={
+                "ssh_command": " ".join(ssh_command),
+            },
+        )
+
     async def stream_execute(
         self,
         command: list[str],
@@ -524,6 +620,11 @@ class SSHTarget(ExecutionTarget):
         env: dict[str, str] | None = None,
         timeout: int | None = None,
     ) -> AsyncIterator[str]:
+        preflight_result = await self._run_preflight(timeout=timeout)
+        if preflight_result is not None:
+            yield f"[error] {preflight_result.stderr}"
+            return
+
         ssh_command = self._build_ssh_command(
             command,
             working_directory=working_directory,
@@ -533,8 +634,7 @@ class SSHTarget(ExecutionTarget):
             yield line
 
     async def health_check(self) -> bool:
-        result = await self._local.execute(["ssh", "-V"], timeout=10)
-        return result.success
+        return await self._run_preflight(timeout=10) is None
 
 
 @dataclass
