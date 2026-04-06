@@ -154,10 +154,18 @@
 
 ## Catalog Mode Activation
 
-- Fact: Closed-world catalog enforcement is currently opt-in via the `TEST_CATALOG_PATH` environment variable; when configured, the intent service loads the catalog and stops unknown or ambiguous requests before execution.
+- Fact: Closed-world catalog enforcement now auto-loads `registry/catalog.json` in this repo when `TEST_CATALOG_PATH` is absent. `TEST_CATALOG_PATH` still overrides the location, and setting it to an empty string explicitly disables repo auto-discovery.
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/config.py`, `src/test_runner/agents/intent_service.py`, and `src/test_runner/orchestrator/hub.py`
+- Last verified: 2026-04-06
+
+## Default Catalog File
+
+- Fact: The repo now ships an authoritative default catalog file at `registry/catalog.json`. It is intentionally empty except for a `local` system definition, so the default behavior is safe closed-world refusal until the catalog is populated.
+- Scope: repo
+- Confidence: high
+- Source: `registry/catalog.json`
 - Last verified: 2026-04-06
 
 ## Catalog Execution Types

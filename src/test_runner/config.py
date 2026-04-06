@@ -29,6 +29,8 @@ _PLACEHOLDER_ENV_VALUES = frozenset(
     }
 )
 
+_DEFAULT_CATALOG_RELATIVE_PATH = Path("registry") / "catalog.json"
+
 
 class AutonomyPolicy(str, Enum):
     """Configurable autonomy levels for agent behavior."""
@@ -105,7 +107,14 @@ class Config:
             autonomy = AutonomyPolicy.CONSERVATIVE
 
         log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
-        test_catalog_path = os.environ.get("TEST_CATALOG_PATH", "").strip()
+        catalog_path_env = os.environ.get("TEST_CATALOG_PATH")
+        if catalog_path_env is not None:
+            test_catalog_path = catalog_path_env.strip()
+        else:
+            test_catalog_path = ""
+            default_catalog_path = (Path.cwd() / _DEFAULT_CATALOG_RELATIVE_PATH)
+            if default_catalog_path.exists():
+                test_catalog_path = str(default_catalog_path)
 
         return cls(
             llm_base_url=llm_base_url,

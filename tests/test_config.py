@@ -97,6 +97,46 @@ class TestConfigLoadEnvVars:
         config = Config.load()
         assert config.autonomy_policy == AutonomyPolicy.CONSERVATIVE
 
+    def test_default_catalog_path_autodiscovered(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text('{"version": 1, "entries": []}', encoding="utf-8")
+
+        config = Config.load()
+
+        assert config.test_catalog_path == str(catalog_path)
+
+    def test_env_catalog_path_overrides_repo_default(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        (registry_dir / "catalog.json").write_text(
+            '{"version": 1, "entries": []}',
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("TEST_CATALOG_PATH", "/tmp/override-catalog.json")
+
+        config = Config.load()
+
+        assert config.test_catalog_path == "/tmp/override-catalog.json"
+
+    def test_empty_catalog_env_disables_repo_autodiscovery(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        (registry_dir / "catalog.json").write_text(
+            '{"version": 1, "entries": []}',
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("TEST_CATALOG_PATH", "")
+
+        config = Config.load()
+
+        assert config.test_catalog_path == ""
+
 
 # ---------------------------------------------------------------------------
 # Config.load – .env file tests

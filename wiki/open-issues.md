@@ -2,12 +2,11 @@
 
 ## High Priority
 
-### Catalog Enforcement Is Not Default Yet
+### Catalog Population Workflow Is Missing
 
-- A deterministic JSON-backed catalog resolver now exists and blocks unknown or ambiguous requests when `TEST_CATALOG_PATH` is configured.
-- The catalog schema now includes named execution systems, but the repo still does not ship a default repo-local catalog file or enable catalog mode automatically.
-- The repo does not yet ship a default catalog, so legacy freeform translation still remains the default behavior in unconfigured environments.
-- If the target product is truly closed-world by default, the next step is to decide on a repo-local catalog location and make registry enforcement the normal path.
+- A deterministic JSON-backed catalog resolver now auto-loads `registry/catalog.json` in this repo, so closed-world execution is now the default behavior here.
+- The shipped default catalog is intentionally empty, which is safe but not yet user-friendly.
+- The next product gap is not enforcement, but a good way for users to teach or manage saved test definitions without editing JSON manually.
 
 ### Dataiku Mesh Integration Is Only Partially Proven
 

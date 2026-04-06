@@ -94,8 +94,8 @@ The expected safety boundary is closed-world execution:
 - ask for clarification or registration instead
 - only confirmed catalog entries become runnable definitions
 
-The current implementation now includes a deterministic JSON-backed catalog resolver that can be enabled through configuration. In catalog mode, intent resolution matches saved aliases and keywords locally and only emits runnable commands for saved `python_script` and `executable` entries. The catalog schema now also includes named execution systems, with `local` systems executable today and non-local systems failing closed until the corresponding target is implemented.
+The current implementation now includes a deterministic JSON-backed catalog resolver that auto-loads the repo-local `registry/catalog.json` when present. In catalog mode, intent resolution matches saved aliases and keywords locally and only emits runnable commands for saved `python_script` and `executable` entries. The catalog schema now also includes named execution systems, with `local` and `ssh` systems both executable through the execution layer.
 
 ## Current Integration Status
 
-The internal architecture is more complete than the final product shape. Core orchestration exists, and a first machine-readable catalog layer now exists, but the full chatbot product still needs default-on registry adoption, richer clarification flows, remote-target execution, and conversation-driven catalog teaching.
+The internal architecture is more complete than the final product shape. Core orchestration exists, the repo now defaults to a closed-world catalog, and remote SSH execution exists as a first pass. The full chatbot product still needs richer clarification flows, remote-execution hardening, and conversation-driven catalog teaching.

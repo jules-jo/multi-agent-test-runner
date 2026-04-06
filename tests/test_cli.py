@@ -236,6 +236,7 @@ class TestAsyncMain:
             "TEST_CATALOG_PATH",
         ):
             monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv("TEST_CATALOG_PATH", "")
 
     @pytest.mark.asyncio
     async def test_dry_run_succeeds(self):
@@ -298,6 +299,32 @@ class TestAsyncMain:
         result = await async_main(["--dry-run", "run lt"])
 
         assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_dry_run_uses_repo_default_catalog_when_present(
+        self, monkeypatch, tmp_path
+    ):
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+
+        result = await async_main(["--dry-run", "run missing suite"])
+
+        assert result == 1
 
     @pytest.mark.asyncio
     async def test_real_run_without_config_uses_offline_mode(self, monkeypatch):

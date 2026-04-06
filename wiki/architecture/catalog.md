@@ -13,10 +13,14 @@ When catalog mode is enabled, the system should:
 
 ## Current File Shape
 
-The current on-disk format is JSON and is loaded through `TEST_CATALOG_PATH`.
+The current on-disk format is JSON. The loader uses:
+
+- `TEST_CATALOG_PATH` when explicitly set
+- otherwise `registry/catalog.json` in the repo root when it exists
 
 Example location:
 
+- `registry/catalog.json`
 - `registry/catalog.example.json`
 
 Top-level fields:
@@ -102,7 +106,6 @@ The catalog is the execution authority. LLM-based parsing may help interpret the
 
 ## Current Gaps
 
-- catalog enforcement is still opt-in through `TEST_CATALOG_PATH`
-- there is no default repo-local catalog enabled by default
 - there is no conversational flow yet for teaching a new test and persisting it safely
 - remote host lifecycle is still thin: no preflight connectivity checks, artifact transfer, or richer SSH/session management yet
+- the default shipped catalog is intentionally empty, so the product still needs a user-facing flow for populating real runnable definitions

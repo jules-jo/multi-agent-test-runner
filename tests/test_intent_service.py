@@ -21,6 +21,7 @@ from test_runner.agents.parser import (
 )
 from test_runner.catalog import (
     CatalogRegistry,
+    CatalogDocument,
     CatalogEntry,
     CatalogExecutionType,
 )
@@ -43,6 +44,7 @@ def config_with_llm(monkeypatch):
     monkeypatch.setenv("DATAIKU_LLM_MESH_URL", "https://mesh.example.com/v1")
     monkeypatch.setenv("DATAIKU_API_KEY", "test-key-123")
     monkeypatch.setenv("DATAIKU_MODEL_ID", "test-model")
+    monkeypatch.setenv("TEST_CATALOG_PATH", "")
     return Config.load()
 
 
@@ -58,6 +60,7 @@ def config_no_llm(monkeypatch):
         "LLM_MODEL",
     ):
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("TEST_CATALOG_PATH", "")
     return Config.load()
 
 
@@ -268,6 +271,40 @@ class TestResolveOffline:
         assert result.commands == []
         assert result.needs_clarification is True
         assert any("cataloged test definition" in warning for warning in result.warnings)
+
+    def test_catalog_unknown_request_mentions_catalog_path(
+        self, monkeypatch, tmp_path
+    ):
+        catalog_path = tmp_path / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("TEST_CATALOG_PATH", str(catalog_path))
+        for var in (
+            "DATAIKU_LLM_MESH_URL",
+            "DATAIKU_API_KEY",
+            "DATAIKU_MODEL_ID",
+            "LLM_BASE_URL",
+            "LLM_API_KEY",
+            "LLM_MODEL",
+        ):
+            monkeypatch.delenv(var, raising=False)
+        config = Config.load()
+        service = IntentParserService(config, parse_mode=ParseMode.OFFLINE)
+
+        result = service.resolve_offline("run missing suite")
+
+        assert result.commands == []
+        assert any(str(catalog_path) in warning for warning in result.warnings)
 
     def test_catalog_ambiguous_request_requires_clarification(self, config_no_llm):
         registry = CatalogRegistry(

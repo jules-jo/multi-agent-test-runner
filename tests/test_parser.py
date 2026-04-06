@@ -29,6 +29,7 @@ def config(monkeypatch):
     monkeypatch.setenv("DATAIKU_LLM_MESH_URL", "https://mesh.example.com/v1")
     monkeypatch.setenv("DATAIKU_API_KEY", "test-key-123")
     monkeypatch.setenv("DATAIKU_MODEL_ID", "test-model")
+    monkeypatch.setenv("TEST_CATALOG_PATH", "")
     return Config.load()
 
 

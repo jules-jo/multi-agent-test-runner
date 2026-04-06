@@ -372,6 +372,15 @@ class IntentParserService:
                 timeout=timeout,
                 env=env,
             )
+            if (
+                not translation.commands
+                and self._config.test_catalog_path
+                and not any(self._config.test_catalog_path in warning for warning in translation.warnings)
+            ):
+                translation.warnings.append(
+                    "Update saved test definitions in "
+                    f"{self._config.test_catalog_path}."
+                )
             return translation, not bool(translation.commands)
 
         try:

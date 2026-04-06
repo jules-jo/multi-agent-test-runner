@@ -11,7 +11,7 @@ The current product direction is narrowing from a generic natural-language test 
 - The codebase is substantial and modular.
 - The orchestrator-centered architecture is present.
 - The one-shot, piped, and terminal interactive CLI paths are now integrated with the orchestrator.
-- A deterministic JSON-backed test catalog now exists for closed-world execution when catalog mode is enabled.
+- A deterministic JSON-backed test catalog now exists, and this repo now auto-loads `registry/catalog.json` by default for closed-world execution.
 - The catalog schema now models named execution systems as well as runnable test entries.
 - Cataloged `ssh` systems can now execute through a dedicated SSH target instead of failing closed during translation.
 - The test suite is large and mostly green.
@@ -49,7 +49,8 @@ The current product direction is narrowing from a generic natural-language test 
 - The catalog now supports named `local` and `ssh` systems; `ssh` entries are represented in the schema but currently fail closed until a remote execution target exists.
 - Catalog translation now carries full system metadata into command metadata so execution can resolve per-command targets deterministically.
 - The execution layer now resolves cataloged `ssh` commands into an `SSHTarget`, while preserving local-only PATH and working-directory defaults for local commands only.
-- Closed-world catalog mode is currently enabled by configuring `TEST_CATALOG_PATH`; in that mode unknown or ambiguous requests stop before discovery/execution instead of synthesizing commands.
+- Closed-world catalog mode now auto-enables in this repo when `registry/catalog.json` exists. `TEST_CATALOG_PATH` remains an override, and `TEST_CATALOG_PATH=""` explicitly disables repo auto-discovery.
+- The shipped default catalog file is intentionally empty, so unknown requests now fail safely and point the user to the catalog file instead of falling back to freeform execution.
 - CLI dry runs now surface catalog clarification failures as non-zero results instead of pretending the request is runnable.
 - Missing LLM configuration no longer blocks local runs; the CLI uses offline parsing in that case.
 - Local CLI runs now inject the active virtualenv's `bin` directory into `PATH` so commands like `pytest` resolve correctly.
