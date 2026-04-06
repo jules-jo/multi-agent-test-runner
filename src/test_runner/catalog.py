@@ -256,6 +256,7 @@ class CatalogRegistry:
         *,
         timeout: int | None = None,
         env: dict[str, str] | None = None,
+        system_override: str | None = None,
     ) -> TranslationResult:
         """Build runnable commands for a catalog match."""
         if match.status != CatalogMatchStatus.MATCHED or match.entry is None:
@@ -287,6 +288,22 @@ class CatalogRegistry:
             )
 
         system = self._resolve_system(entry)
+        if system_override:
+            override_system = self._systems.get(self._normalize_phrase(system_override))
+            if override_system is None:
+                warnings.append(
+                    f"Requested saved system {system_override!r} does not exist.",
+                )
+                return TranslationResult(
+                    commands=[],
+                    warnings=warnings,
+                    source_request=request,
+                )
+            system = override_system
+            if self._normalize_phrase(entry.system) != self._normalize_phrase(system.alias):
+                warnings.append(
+                    f"Overriding saved system {entry.system!r} with {system.alias!r} for this run."
+                )
         if system is None:
             warnings.append(
                 f"Catalog entry {entry.alias!r} references unknown system "
@@ -316,8 +333,10 @@ class CatalogRegistry:
                 "catalog_description": entry.description,
                 "catalog_execution_type": entry.execution_type.value,
                 "catalog_system": system.alias,
+                "catalog_default_system": entry.system,
                 "catalog_system_transport": system.transport.value,
                 "catalog_system_config": system.model_dump(mode="python"),
+                "catalog_system_override": system_override or "",
                 "intent": request.intent.value,
                 "scope": request.scope,
                 "confidence": request.confidence,

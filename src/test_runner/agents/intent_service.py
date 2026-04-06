@@ -144,12 +144,14 @@ class IntentParserService:
         clarification_threshold: float = _DEFAULT_CLARIFICATION_THRESHOLD,
         command_translator: CommandTranslator | None = None,
         catalog_registry: CatalogRegistry | None = None,
+        catalog_system_override: str | None = None,
     ) -> None:
         self._config = config
         self._parse_mode = parse_mode
         self._clarification_threshold = clarification_threshold
         self._translator = command_translator or CommandTranslator()
         self._catalog_registry = catalog_registry or self._load_catalog_registry()
+        self._catalog_system_override = (catalog_system_override or "").strip()
 
         # Only build the LLM-backed parser if we might need it
         self._llm_parser: NaturalLanguageParser | None = None
@@ -371,6 +373,7 @@ class IntentParserService:
                 parsed,
                 timeout=timeout,
                 env=env,
+                system_override=self._catalog_system_override or None,
             )
             if (
                 not translation.commands

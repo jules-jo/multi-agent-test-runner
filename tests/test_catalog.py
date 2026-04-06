@@ -377,6 +377,49 @@ class TestCatalogRegistryTranslation:
             "SYSTEM_ENV": "devbox",
         }
 
+    def test_system_override_uses_saved_target_on_override_system(self) -> None:
+        registry = CatalogRegistry(
+            entries=[
+                CatalogEntry(
+                    alias="lt",
+                    execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                    target="scripts/local_smoke.py",
+                    system="devbox",
+                    env={"ENTRY_ENV": "1"},
+                )
+            ],
+            systems=[
+                CatalogSystem(
+                    alias="devbox",
+                    transport=CatalogSystemTransport.LOCAL,
+                    working_directory="/repo",
+                    env={"SYSTEM_ENV": "devbox"},
+                ),
+                CatalogSystem(
+                    alias="lab-a",
+                    transport=CatalogSystemTransport.SSH,
+                    hostname="lab-a.example",
+                    working_directory="/remote/repo",
+                    env={"SYSTEM_ENV": "lab-a"},
+                ),
+            ],
+        )
+        match = registry.match_request("run lt on lab-a")
+
+        result = registry.translate_match(
+            match,
+            _make_request(raw_request="run lt on lab-a"),
+            system_override="lab-a",
+        )
+
+        command = result.commands[0]
+        assert command.working_directory == "/remote/repo"
+        assert command.env == {"SYSTEM_ENV": "lab-a", "ENTRY_ENV": "1"}
+        assert command.metadata["catalog_system"] == "lab-a"
+        assert command.metadata["catalog_default_system"] == "devbox"
+        assert command.metadata["catalog_system_override"] == "lab-a"
+        assert any("Overriding saved system" in warning for warning in result.warnings)
+
     def test_extra_args_are_ignored_in_catalog_mode(self) -> None:
         registry = _make_registry()
         match = registry.match_request("run lt -x")

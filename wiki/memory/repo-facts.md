@@ -18,7 +18,7 @@
 
 ## Main Regression Bundle Status
 
-- Fact: The main regression bundle covering config, catalog, intent service, CLI, parser, execution targets, execution attempts, orchestrator delegation wiring, and troubleshooter wiring is passing at `329 passed, 16 warnings`.
+- Fact: The main regression bundle covering config, catalog, intent service, CLI, parser, execution targets, execution attempts, orchestrator delegation wiring, and troubleshooter wiring is passing at `333 passed, 16 warnings`.
 - Scope: runtime
 - Confidence: high
 - Source: `./.venv/bin/pytest -q tests/test_config.py tests/test_catalog.py tests/test_intent_service.py tests/test_cli.py tests/test_parser.py tests/test_execution_targets.py tests/test_execution_attempts.py tests/test_orchestrator_delegation_wiring.py tests/test_troubleshooter_wiring.py`
@@ -46,6 +46,14 @@
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/cli.py` and interactive smoke test
+- Last verified: 2026-04-06
+
+## Interactive Session Memory
+
+- Fact: Interactive CLI sessions now keep lightweight turn-local memory for the last matched saved alias, pending ambiguous alias choices, and the last selected saved system. This enables follow-ups like `rerun that` and short clarification replies such as `2`.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/cli.py` and `tests/test_cli.py`
 - Last verified: 2026-04-06
 
 ## CLI Prompt Ordering Nuance
@@ -216,7 +224,7 @@
 - Source: `src/test_runner/catalog.py` and `registry/catalog.example.json`
 - Last verified: 2026-04-06
 
-## Remote Entries Fail Closed
+## Remote Entries Execute Via SSH
 
 - Fact: Catalog entries targeting saved `ssh` systems now translate into runnable commands and are executed through `SSHTarget`, which shells out through the local `ssh` client using catalog system metadata.
 - Scope: repo
@@ -230,6 +238,14 @@
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/catalog.py` and `src/test_runner/orchestrator/hub.py`
+- Last verified: 2026-04-06
+
+## Saved System Overrides
+
+- Fact: Catalog-backed requests can now use a saved per-run system override such as `on lab-a`. The override must resolve to a saved system alias in the catalog and changes the selected execution system without leaving closed-world mode.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/catalog.py`, `src/test_runner/agents/intent_service.py`, `src/test_runner/orchestrator/hub.py`, and `src/test_runner/cli.py`
 - Last verified: 2026-04-06
 
 ## SSH Preflight

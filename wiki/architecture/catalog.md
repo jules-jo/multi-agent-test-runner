@@ -92,6 +92,7 @@ Behavior rules:
 - entry-level `env` overrides the system `env`
 - runtime-injected env overrides both for local execution
 - local-only runtime env injection is intentionally not copied onto `ssh` commands
+- a request may use a saved per-run system override such as `on lab-a`, but the override must still resolve to a saved system alias in the catalog
 
 ## Resolution Rules
 

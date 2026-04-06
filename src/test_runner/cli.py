@@ -33,6 +33,7 @@ from test_runner.agents.intent_service import IntentParserService, ParseMode
 from test_runner.catalog import (
     CatalogEntry,
     CatalogExecutionType,
+    CatalogRegistry,
     CatalogRepository,
     CatalogSystem,
     CatalogSystemTransport,
@@ -210,6 +211,25 @@ class CatalogCommand:
     alias: str = ""
 
 
+@dataclass
+class InteractiveSessionState:
+    """Per-session conversational state for the terminal REPL."""
+
+    last_catalog_alias: str = ""
+    last_system_alias: str = ""
+    last_request: str = ""
+    pending_clarification_aliases: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PreparedInteractiveRequest:
+    """Session-aware request prepared for validation and execution."""
+
+    canonical_request: str
+    system_override: str = ""
+    note: str = ""
+
+
 def _normalize_frontdoor_text(text: str) -> str:
     """Normalize user input for lightweight front-door handling."""
     normalized = text.strip().lower()
@@ -311,6 +331,207 @@ def _parse_catalog_command(text: str) -> CatalogCommand | None:
     if action == "remove":
         action = "delete"
     return CatalogCommand(resource="system", action=action, alias=alias)
+
+
+def _get_catalog_repository(config: Config) -> CatalogRepository | None:
+    """Return the configured catalog repository, if any."""
+    if not config.test_catalog_path:
+        return None
+    return CatalogRepository(config.test_catalog_path)
+
+
+def _match_pending_alias_choice(
+    request: str,
+    aliases: tuple[str, ...],
+) -> str | None:
+    """Resolve a clarification reply to one saved alias."""
+    if not aliases:
+        return None
+
+    candidate_text = re.sub(
+        r"\s+on\s+.+$",
+        "",
+        request.strip(),
+        flags=re.IGNORECASE,
+    )
+    normalized = _normalize_frontdoor_text(candidate_text)
+    if not normalized:
+        return None
+
+    ordinal_map = {
+        "1": 1,
+        "first": 1,
+        "1st": 1,
+        "one": 1,
+        "2": 2,
+        "second": 2,
+        "2nd": 2,
+        "two": 2,
+        "3": 3,
+        "third": 3,
+        "3rd": 3,
+        "three": 3,
+    }
+    if normalized in ordinal_map:
+        index = ordinal_map[normalized] - 1
+        if 0 <= index < len(aliases):
+            return aliases[index]
+
+    command_match = re.match(
+        r"^(?:run|use|pick|choose|select)\s+(.+?)\s*$",
+        candidate_text,
+        flags=re.IGNORECASE,
+    )
+    if command_match is not None:
+        normalized = _normalize_frontdoor_text(command_match.group(1))
+
+    for alias in aliases:
+        if _normalize_frontdoor_text(alias) == normalized:
+            return alias
+    return None
+
+
+def _extract_known_system_override(
+    request: str,
+    repository: CatalogRepository | None,
+) -> str:
+    """Extract a saved system alias from a trailing `on <system>` phrase."""
+    if repository is None:
+        return ""
+
+    match = re.search(r"\bon\s+(.+?)\s*$", request.strip(), flags=re.IGNORECASE)
+    if match is None:
+        return ""
+
+    candidate = match.group(1).strip()
+    if not candidate:
+        return ""
+    system = repository.get_system(candidate)
+    if system is None:
+        return ""
+    return system.alias
+
+
+def _prepare_interactive_request(
+    request: str,
+    *,
+    config: Config,
+    session_state: InteractiveSessionState,
+) -> PreparedInteractiveRequest:
+    """Rewrite follow-ups and clarification replies into canonical requests."""
+    repository = _get_catalog_repository(config)
+    stripped = request.strip()
+    if not stripped:
+        return PreparedInteractiveRequest(canonical_request=request)
+
+    if session_state.pending_clarification_aliases:
+        chosen_alias = _match_pending_alias_choice(
+            stripped,
+            session_state.pending_clarification_aliases,
+        )
+        if chosen_alias:
+            system_override = _extract_known_system_override(stripped, repository)
+            note = (
+                f"Using clarification choice {chosen_alias!r}."
+                if not system_override
+                else f"Using clarification choice {chosen_alias!r} on saved system {system_override!r}."
+            )
+            return PreparedInteractiveRequest(
+                canonical_request=f"run {chosen_alias}",
+                system_override=system_override,
+                note=note,
+            )
+
+    if session_state.last_catalog_alias:
+        rerun_match = re.match(
+            r"^(?:rerun|run)\s+(?:that|it|the same(?: test)?|same(?: test)?)(?:\s+again)?(?:\s+on\s+(.+?))?\s*$",
+            stripped,
+            flags=re.IGNORECASE,
+        )
+        if rerun_match is not None:
+            system_override = ""
+            if repository is not None and rerun_match.group(1):
+                override = repository.get_system(rerun_match.group(1).strip())
+                if override is not None:
+                    system_override = override.alias
+            note = f"Reusing saved alias {session_state.last_catalog_alias!r} from this session."
+            if system_override:
+                note = (
+                    f"Reusing saved alias {session_state.last_catalog_alias!r} "
+                    f"on saved system {system_override!r}."
+                )
+            return PreparedInteractiveRequest(
+                canonical_request=f"run {session_state.last_catalog_alias}",
+                system_override=system_override,
+                note=note,
+            )
+
+    system_override = _extract_known_system_override(stripped, repository)
+    note = ""
+    if system_override:
+        note = f"Using saved system override {system_override!r} for this run."
+    return PreparedInteractiveRequest(
+        canonical_request=stripped,
+        system_override=system_override,
+        note=note,
+    )
+
+
+def _remember_catalog_reference(
+    request: str,
+    *,
+    config: Config,
+    session_state: InteractiveSessionState,
+    system_override: str = "",
+) -> None:
+    """Remember the last matched saved alias/system for follow-up turns."""
+    repository = _get_catalog_repository(config)
+    if repository is None:
+        return
+
+    try:
+        registry = CatalogRegistry.from_path(config.test_catalog_path)
+    except Exception:  # noqa: BLE001
+        return
+
+    resolved = registry.match_request(request)
+    if resolved.entry is None:
+        return
+
+    session_state.last_catalog_alias = resolved.entry.alias
+    session_state.last_system_alias = system_override or resolved.entry.system
+    session_state.last_request = request
+    session_state.pending_clarification_aliases = ()
+
+
+def _extract_ambiguous_catalog_aliases(state: RunState) -> tuple[str, ...]:
+    """Pull catalog alias choices from a failed clarification message."""
+    pattern = re.compile(
+        r"needs clarification:\s*(.+?)\.\s*$",
+        flags=re.IGNORECASE,
+    )
+    for message in [
+        *state.errors,
+        *state.intent_resolution.get("warnings", []),
+    ]:
+        match = pattern.search(message)
+        if match is None:
+            continue
+        aliases = tuple(
+            alias.strip()
+            for alias in match.group(1).split(",")
+            if alias.strip()
+        )
+        if aliases:
+            return aliases
+    return ()
+
+
+def _print_alias_clarification_prompt(aliases: tuple[str, ...]) -> None:
+    """Tell the user how to resolve an ambiguous saved-test request."""
+    console.print("[yellow]Multiple saved tests matched. Reply with one alias or number:[/yellow]")
+    for index, alias in enumerate(aliases, start=1):
+        console.print(f"[dim]- {index}. {alias}[/dim]")
 
 
 def _prompt_text(prompt: str, *, default: str | None = None) -> str:
@@ -962,15 +1183,8 @@ async def interactive_loop_async(
         if _maybe_handle_frontdoor_input(stripped):
             continue
 
-        try:
-            request = validate_request(stripped)
-        except InputValidationError as exc:
-            console.print(f"[red]Validation error:[/red] {exc}")
-            session_exit_code = 1
-            continue
-
         if dispatch_fn is not None:
-            result = dispatch_fn(request)
+            result = dispatch_fn(stripped)
             if inspect.isawaitable(result):
                 request_exit_code = await result
             else:
@@ -1102,6 +1316,8 @@ def _build_default_command_env(
 def _create_orchestrator(
     config: Config,
     args: argparse.Namespace,
+    *,
+    catalog_system_override: str = "",
 ) -> OrchestratorHub:
     """Create a configured orchestrator for a CLI request."""
     return OrchestratorHub(
@@ -1119,6 +1335,7 @@ def _create_orchestrator(
             working_dir=args.working_dir,
         ),
         default_working_directory=args.working_dir or "",
+        catalog_system_override=catalog_system_override,
     )
 
 
@@ -1157,10 +1374,15 @@ def _run_dry_run(
     request: str,
     *,
     timeout: int | None = None,
+    catalog_system_override: str = "",
 ) -> int:
     """Resolve the request without executing any test commands."""
     parse_mode = _choose_parse_mode(config)
-    service = IntentParserService(config, parse_mode=parse_mode)
+    service = IntentParserService(
+        config,
+        parse_mode=parse_mode,
+        catalog_system_override=catalog_system_override,
+    )
     if parse_mode == ParseMode.OFFLINE:
         resolution = service.resolve_offline(request, timeout=timeout)
     else:
@@ -1206,8 +1428,26 @@ async def _handle_request(
     request: str,
     *,
     allow_catalog_registration: bool = True,
+    session_state: InteractiveSessionState | None = None,
 ) -> int:
     """Handle one validated request through dry-run or full orchestration."""
+    prepared_request = PreparedInteractiveRequest(canonical_request=request)
+    if session_state is not None and args.interactive:
+        prepared_request = _prepare_interactive_request(
+            request,
+            config=config,
+            session_state=session_state,
+        )
+        request = prepared_request.canonical_request
+        if prepared_request.note:
+            console.print(f"[dim]{prepared_request.note}[/dim]")
+
+    try:
+        request = validate_request(request)
+    except InputValidationError as exc:
+        console.print(f"[red]Validation error:[/red] {exc}")
+        return 1
+
     if _maybe_handle_frontdoor_input(request):
         return 0
 
@@ -1223,7 +1463,12 @@ async def _handle_request(
 
     if args.dry_run:
         console.print("\n[yellow]Dry run — parsing request without execution.[/yellow]")
-        return _run_dry_run(config, request, timeout=args.timeout)
+        return _run_dry_run(
+            config,
+            request,
+            timeout=args.timeout,
+            catalog_system_override=prepared_request.system_override,
+        )
 
     parse_mode = _choose_parse_mode(config)
     if parse_mode == ParseMode.OFFLINE:
@@ -1231,9 +1476,30 @@ async def _handle_request(
     else:
         console.print("[dim]Using auto parse mode with offline fallback.[/dim]")
 
-    orchestrator = _create_orchestrator(config, args)
+    if prepared_request.system_override:
+        orchestrator = _create_orchestrator(
+            config,
+            args,
+            catalog_system_override=prepared_request.system_override,
+        )
+    else:
+        orchestrator = _create_orchestrator(config, args)
     state = await orchestrator.run(request)
     _print_run_notes(state)
+
+    ambiguous_aliases = _extract_ambiguous_catalog_aliases(state)
+    if session_state is not None and ambiguous_aliases:
+        session_state.pending_clarification_aliases = ambiguous_aliases
+        _print_alias_clarification_prompt(ambiguous_aliases)
+        return 0
+
+    if session_state is not None:
+        _remember_catalog_reference(
+            request,
+            config=config,
+            session_state=session_state,
+            system_override=prepared_request.system_override,
+        )
 
     if (
         allow_catalog_registration
@@ -1256,6 +1522,7 @@ async def _handle_request(
                     config,
                     f"run {saved_entry.alias}",
                     allow_catalog_registration=False,
+                    session_state=session_state,
                 )
             return 0 if saved_entry is not None else 1
 
@@ -1290,8 +1557,14 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
     raw_request = _resolve_request(args)
 
     if raw_request is None:
+        session_state = InteractiveSessionState()
         return await interactive_loop_async(
-            dispatch_fn=lambda request: _handle_request(args, config, request),
+            dispatch_fn=lambda request: _handle_request(
+                args,
+                config,
+                request,
+                session_state=session_state,
+            ),
         )
 
     # Validate one-shot request

@@ -29,8 +29,8 @@
 ### Interactive Conversation Depth Is Still Thin
 
 - Interactive mode now routes requests through the orchestrator, but it still behaves as a sequence of independent requests.
-- There is no higher-level conversational session layer for preserving turn-local clarifications, approvals, or threaded follow-up state inside the CLI itself.
-- Only a lightweight front door exists so far; broader conversational intents are still not modeled separately from task requests.
+- The CLI now preserves lightweight session state for last-alias follow-ups and ambiguous alias clarification, but there is still no deeper threaded conversation model for approvals, edits, or longer-running multi-turn plans.
+- Broader conversational intents are still not modeled separately from task requests.
 
 ### Catalog Teaching Workflow Is Still Thin
 

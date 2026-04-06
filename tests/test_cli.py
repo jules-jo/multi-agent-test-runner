@@ -788,3 +788,145 @@ class TestInteractiveMode:
         assert document.entries[0].alias == "lt"
         assert document.entries[0].target == "scripts/local_smoke.py"
         assert document.entries[0].args == ["--quick"]
+
+    @pytest.mark.asyncio
+    async def test_interactive_rerun_that_reuses_last_saved_alias(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+
+        success_state = RunState(request="run lt", phase=RunPhase.COMPLETE)
+        fake_hub = SimpleNamespace(
+            run=AsyncMock(side_effect=[success_state, success_state])
+        )
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            lambda config, args: fake_hub,
+        )
+
+        inputs = iter(["run lt", "rerun that", "quit"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+        code = await async_main(["-i"])
+
+        assert code == 0
+        assert fake_hub.run.await_args_list[0].args == ("run lt",)
+        assert fake_hub.run.await_args_list[1].args == ("run lt",)
+
+    @pytest.mark.asyncio
+    async def test_interactive_ambiguous_request_accepts_numeric_clarification(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                entries=[
+                    CatalogEntry(
+                        alias="alpha",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/alpha.py",
+                        keywords=["smoke"],
+                    ),
+                    CatalogEntry(
+                        alias="beta",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/beta.py",
+                        keywords=["smoke"],
+                    ),
+                ]
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+
+        ambiguous_state = RunState(request="run smoke", phase=RunPhase.FAILED)
+        ambiguous_state.errors.append(
+            "Request matched multiple catalog entries and needs clarification: alpha, beta."
+        )
+        success_state = RunState(request="run beta", phase=RunPhase.COMPLETE)
+        fake_hub = SimpleNamespace(
+            run=AsyncMock(side_effect=[ambiguous_state, success_state])
+        )
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            lambda config, args: fake_hub,
+        )
+
+        inputs = iter(["run smoke", "2", "quit"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+        code = await async_main(["-i"])
+
+        assert code == 0
+        assert fake_hub.run.await_args_list[0].args == ("run smoke",)
+        assert fake_hub.run.await_args_list[1].args == ("run beta",)
+
+    @pytest.mark.asyncio
+    async def test_interactive_run_on_saved_system_passes_override_to_orchestrator(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                systems=[
+                    CatalogSystem(
+                        alias="lab-a",
+                        transport=CatalogSystemTransport.SSH,
+                        hostname="lab-a.example",
+                    )
+                ],
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ],
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+
+        seen_overrides: list[str] = []
+        state = RunState(request="run lt", phase=RunPhase.COMPLETE)
+        fake_hub = SimpleNamespace(run=AsyncMock(return_value=state))
+
+        def fake_create_orchestrator(config, args, *, catalog_system_override=""):
+            seen_overrides.append(catalog_system_override)
+            return fake_hub
+
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            fake_create_orchestrator,
+        )
+
+        inputs = iter(["run lt on lab-a", "quit"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+        code = await async_main(["-i"])
+
+        assert code == 0
+        assert seen_overrides == ["lab-a"]
+        fake_hub.run.assert_awaited_once_with("run lt on lab-a")

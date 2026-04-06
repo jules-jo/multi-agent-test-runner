@@ -17,6 +17,7 @@ The current product direction is narrowing from a generic natural-language test 
 - Interactive CLI mode can now teach a new catalog entry after an unknown request and optionally rerun the saved alias immediately.
 - The CLI can now list, show, edit, and delete saved catalog entries without going through the orchestrator.
 - The CLI can now list, show, edit, and delete saved execution systems without going through the orchestrator.
+- Interactive CLI mode now keeps lightweight session memory for saved-test follow-ups and ambiguity resolution.
 - SSH execution now does a basic preflight so missing local `ssh` binaries and unreachable destinations fail earlier with clearer error messages.
 - The test suite is large and mostly green.
 - Persistent wiki memory is now enabled through the markdown scaffold in `wiki/`.
@@ -55,6 +56,7 @@ The current product direction is narrowing from a generic natural-language test 
 - The execution layer now resolves cataloged `ssh` commands into an `SSHTarget`, while preserving local-only PATH and working-directory defaults for local commands only.
 - Unknown requests in interactive mode can now branch into a deterministic catalog registration dialogue that persists approved entry/system details into `registry/catalog.json`.
 - Explicit catalog-management commands like `list saved tests`, `edit test <alias>`, `list systems`, and `edit system <alias>` are now handled locally at the CLI front door.
+- Interactive CLI sessions now remember the last matched saved alias, can resolve ambiguous catalog matches with a short alias/number reply, and can pass a saved system override such as `on lab-a` into catalog resolution.
 - Closed-world catalog mode now auto-enables in this repo when `registry/catalog.json` exists. `TEST_CATALOG_PATH` remains an override, and `TEST_CATALOG_PATH=""` explicitly disables repo auto-discovery.
 - The shipped default catalog file is intentionally empty, so unknown requests now fail safely and point the user to the catalog file instead of falling back to freeform execution.
 - CLI dry runs now surface catalog clarification failures as non-zero results instead of pretending the request is runnable.
@@ -71,6 +73,7 @@ The current product direction is narrowing from a generic natural-language test 
 - Placeholder values copied from `.env.example` are now treated as unset, so a fresh stub `.env` no longer masquerades as a valid LLM configuration.
 - Serialized execution summaries now preserve the last attempt's stdout/stderr so launch failures retain useful context during troubleshooting.
 - The main regression bundle covering config, catalog, parser, CLI, execution targets, attempts, delegation wiring, and troubleshooter wiring now passes at `329 passed, 16 warnings`.
+- The current main regression bundle now passes at `333 passed, 16 warnings` after adding session follow-ups, ambiguity clarification replies, and saved system overrides for catalog runs.
 
 ## Current Known Gaps
 

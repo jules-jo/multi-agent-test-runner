@@ -165,10 +165,13 @@ class OrchestratorHub:
         command_timeout: int | None = None,
         default_command_env: dict[str, str] | None = None,
         default_working_directory: str = "",
+        catalog_system_override: str = "",
     ) -> None:
         self._config = config
         self._intent_service = IntentParserService(
-            config, parse_mode=parse_mode,
+            config,
+            parse_mode=parse_mode,
+            catalog_system_override=catalog_system_override,
         )
         self._discovery = discovery or DiscoveryAgent()
         self._executor = executor or TaskExecutor()
