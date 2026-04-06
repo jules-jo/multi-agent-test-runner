@@ -60,6 +60,7 @@ def _make_registry() -> CatalogRegistry:
                 alias="devbox",
                 description="Primary local development environment",
                 transport=CatalogSystemTransport.LOCAL,
+                python_command="python3.8",
                 working_directory="/repo",
                 env={"SYSTEM_ENV": "devbox"},
             )
@@ -361,13 +362,35 @@ class TestCatalogRegistryTranslation:
 
         assert len(result.commands) == 1
         command = result.commands[0]
-        assert command.command == ["python", "scripts/local_smoke.py", "--quick"]
+        assert command.command == ["python3.8", "scripts/local_smoke.py", "--quick"]
         assert command.framework == TestFramework.SCRIPT
         assert command.working_directory == "/repo"
         assert command.env == {"CATALOG": "1", "SYSTEM_ENV": "devbox"}
         assert command.timeout == 90
         assert command.metadata["catalog_alias"] == "lt"
         assert command.metadata["catalog_system"] == "devbox"
+
+    def test_python_script_defaults_to_python_when_system_command_missing(self) -> None:
+        registry = CatalogRegistry(
+            entries=[
+                CatalogEntry(
+                    alias="lt",
+                    execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                    target="scripts/local_smoke.py",
+                )
+            ],
+            systems=[
+                CatalogSystem(
+                    alias="local",
+                    transport=CatalogSystemTransport.LOCAL,
+                )
+            ],
+        )
+        match = registry.match_request("run lt")
+
+        result = registry.translate_match(match, _make_request())
+
+        assert result.commands[0].command == ["python", "scripts/local_smoke.py"]
 
     def test_executable_entry_builds_saved_command(self) -> None:
         registry = _make_registry()
@@ -446,7 +469,7 @@ class TestCatalogRegistryTranslation:
             _make_request(extra_args=["-x"]),
         )
 
-        assert result.commands[0].command == ["python", "scripts/local_smoke.py", "--quick"]
+        assert result.commands[0].command == ["python3.8", "scripts/local_smoke.py", "--quick"]
         assert any("Ignoring ad hoc extra arguments" in warning for warning in result.warnings)
 
     def test_non_run_intents_require_clarification(self) -> None:

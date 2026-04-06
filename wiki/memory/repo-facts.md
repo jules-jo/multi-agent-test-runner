@@ -224,6 +224,14 @@
 - Source: `src/test_runner/catalog.py` and `registry/catalog.example.json`
 - Last verified: 2026-04-06
 
+## System Python Command
+
+- Fact: Saved systems can now declare `python_command`, and catalog `python_script` entries use that interpreter instead of hardcoding `python`. This allows remote systems to use commands like `python3.8` while keeping the script path in `entries.target`.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/catalog.py`, `src/test_runner/cli.py`, `registry/catalog.example.json`, and `tests/test_catalog.py`
+- Last verified: 2026-04-06
+
 ## Remote Entries Execute Via SSH
 
 - Fact: Catalog entries targeting saved `ssh` systems now translate into runnable commands and are executed through `SSHTarget`, which shells out through the local `ssh` client using catalog system metadata.

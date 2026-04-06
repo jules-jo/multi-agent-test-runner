@@ -20,6 +20,7 @@ The current product direction is narrowing from a generic natural-language test 
 - Interactive CLI mode now keeps lightweight session memory for saved-test follow-ups and ambiguity resolution.
 - SSH execution now does a basic preflight so missing local `ssh` binaries and unreachable destinations fail earlier with clearer error messages.
 - Password-based SSH execution is now supported for saved systems when the password is provided through an environment variable instead of the catalog file.
+- Saved systems can now declare a system-level Python interpreter such as `python3.8` for `python_script` entries.
 - The test suite is large and mostly green.
 - Persistent wiki memory is now enabled through the markdown scaffold in `wiki/`.
 
@@ -63,6 +64,7 @@ The current product direction is narrowing from a generic natural-language test 
 - CLI dry runs now surface catalog clarification failures as non-zero results instead of pretending the request is runnable.
 - SSH execution now performs a basic deterministic preflight of the local `ssh` client and saved destination before the real remote command runs.
 - Saved SSH systems can now choose `ssh_key` or `password` auth. Password auth uses a Python SSH backend and an env-var password reference instead of storing secrets in the catalog.
+- Saved systems can now set `python_command`, so `python_script` entries keep the script path in `target` while using a system-specific interpreter like `python3.8`.
 - Missing LLM configuration no longer blocks local runs; the CLI uses offline parsing in that case.
 - Local CLI runs now inject the active virtualenv's `bin` directory into `PATH` so commands like `pytest` resolve correctly.
 - Reporter summaries now receive task-level execution results through the executor callback path, which fixes the previous `0 total` summary problem for runs whose raw output did not yield per-test parse events.
@@ -75,7 +77,7 @@ The current product direction is narrowing from a generic natural-language test 
 - Placeholder values copied from `.env.example` are now treated as unset, so a fresh stub `.env` no longer masquerades as a valid LLM configuration.
 - Serialized execution summaries now preserve the last attempt's stdout/stderr so launch failures retain useful context during troubleshooting.
 - The main regression bundle covering config, catalog, parser, CLI, execution targets, attempts, delegation wiring, and troubleshooter wiring now passes at `329 passed, 16 warnings`.
-- The current main regression bundle now passes at `338 passed, 16 warnings` after fixing local-default target masking of cataloged SSH execution.
+- The current main regression bundle now passes at `340 passed, 16 warnings` after adding system-level Python interpreter selection for cataloged `python_script` runs.
 
 ## Current Known Gaps
 

@@ -715,6 +715,7 @@ def _prompt_catalog_system(
         else CatalogSystemAuthMethod.SSH_KEY
     )
     password_env_var = existing.password_env_var if existing is not None else ""
+    python_command = existing.python_command if existing is not None else ""
     credential_ref = existing.credential_ref if existing is not None else ""
 
     if transport == CatalogSystemTransport.SSH:
@@ -741,6 +742,10 @@ def _prompt_catalog_system(
                 default=password_env_var or f"{alias.upper().replace('-', '_')}_SSH_PASSWORD",
             )
             ssh_config_host = ""
+        python_command = _prompt_text(
+            "Python command on this system",
+            default=python_command or "python",
+        )
         credential_ref = _prompt_text(
             "Credential reference",
             default=credential_ref or (
@@ -756,6 +761,10 @@ def _prompt_catalog_system(
         port = None
         auth_method = CatalogSystemAuthMethod.SSH_KEY
         password_env_var = ""
+        python_command = _prompt_text(
+            "Python command on this system",
+            default=python_command or "python",
+        )
         credential_ref = ""
 
     return CatalogSystem(
@@ -768,6 +777,7 @@ def _prompt_catalog_system(
         ssh_config_host=ssh_config_host,
         auth_method=auth_method,
         password_env_var=password_env_var,
+        python_command=python_command,
         working_directory=working_directory,
         credential_ref=credential_ref,
     )
@@ -960,6 +970,8 @@ def _print_catalog_entry_details(
                 console.print(
                     f"[dim]- password env var: {system.password_env_var}[/dim]"
                 )
+        if system.python_command:
+            console.print(f"[dim]- python command: {system.python_command}[/dim]")
 
 
 def _print_catalog_system_details(system: CatalogSystem) -> None:

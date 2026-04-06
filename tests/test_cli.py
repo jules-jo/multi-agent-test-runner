@@ -623,6 +623,7 @@ class TestAsyncMain:
             "",                   # ssh config host
             "runner2",            # username
             "2201",               # port
+            "python3.8",          # python command
             "ssh-config:lab-a",   # credential ref
             "y",                  # save
         ])
@@ -638,6 +639,7 @@ class TestAsyncMain:
         assert system.working_directory == "/opt/tests"
         assert system.username == "runner2"
         assert system.port == 2201
+        assert system.python_command == "python3.8"
 
     @pytest.mark.asyncio
     async def test_delete_system_is_handled_locally(self, monkeypatch, tmp_path):

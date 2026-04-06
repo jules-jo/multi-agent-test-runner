@@ -56,6 +56,7 @@ class CatalogSystem(BaseModel):
     ssh_config_host: str = ""
     auth_method: CatalogSystemAuthMethod = CatalogSystemAuthMethod.SSH_KEY
     password_env_var: str = ""
+    python_command: str = ""
     working_directory: str = ""
     env: dict[str, str] = Field(default_factory=dict)
     credential_ref: str = ""
@@ -74,6 +75,7 @@ class CatalogSystem(BaseModel):
         "username",
         "ssh_config_host",
         "password_env_var",
+        "python_command",
         "credential_ref",
     )
     @classmethod
@@ -339,7 +341,7 @@ class CatalogRegistry:
                 source_request=request,
             )
 
-        command_tokens = self._build_command_tokens(entry)
+        command_tokens = self._build_command_tokens(entry, system)
         merged_env = dict(system.env)
         merged_env.update(entry.env)
         if env and system.transport == CatalogSystemTransport.LOCAL:
@@ -407,9 +409,13 @@ class CatalogRegistry:
         )
 
     @staticmethod
-    def _build_command_tokens(entry: CatalogEntry) -> list[str]:
+    def _build_command_tokens(
+        entry: CatalogEntry,
+        system: CatalogSystem,
+    ) -> list[str]:
         if entry.execution_type == CatalogExecutionType.PYTHON_SCRIPT:
-            return ["python", entry.target, *entry.args]
+            interpreter = system.python_command or "python"
+            return [interpreter, entry.target, *entry.args]
         return [entry.target, *entry.args]
 
     def _build_system_index(

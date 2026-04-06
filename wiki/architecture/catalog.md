@@ -44,6 +44,7 @@ Current fields:
 - `ssh_config_host`
 - `auth_method`
 - `password_env_var`
+- `python_command`
 - `working_directory`
 - `env`
 - `credential_ref`
@@ -58,6 +59,7 @@ Important rule:
 
 - `credential_ref` is only a pointer to external credentials such as SSH config or a secret manager key. Secrets do not belong in the catalog.
 - for password-based SSH, store the password in an environment variable and save only the env-var name in `password_env_var`
+- `python_command` lets saved `python_script` entries use a system-specific interpreter such as `python3.8` while keeping the script path in `target`
 
 Current implementation status:
 
@@ -97,6 +99,7 @@ Behavior rules:
 - runtime-injected env overrides both for local execution
 - local-only runtime env injection is intentionally not copied onto `ssh` commands
 - a request may use a saved per-run system override such as `on lab-a`, but the override must still resolve to a saved system alias in the catalog
+- `python_script` entries use `system.python_command` when present, otherwise they default to `python`
 
 ## Resolution Rules
 
