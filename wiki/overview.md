@@ -63,8 +63,8 @@ The current product direction is narrowing from a generic natural-language test 
 - Explicit catalog-management commands like `list saved tests`, `edit test <alias>`, `list systems`, and `edit system <alias>` are now handled locally at the CLI front door.
 - Interactive CLI sessions now remember the last matched saved alias, can resolve ambiguous catalog matches with a short alias/number reply, and can pass a saved system override such as `on lab-a` into catalog resolution.
 - When a saved test has no default system, interactive CLI mode now prompts for a saved system alias or number and reruns the chosen test on that system.
-- Full catalog-backed runs now probe `--help`/`-h` on the selected system to derive request-specific value arguments such as iteration counts instead of requiring every runtime flag to be hard-coded in `entries.args`.
-- After a saved test stops on missing required arguments, interactive CLI mode can now accept a short follow-up such as `for 10 iterations` and retry the same saved test on the same chosen system.
+- Full catalog-backed runs now probe `--help`/`-h` on the selected system to derive request-specific value arguments such as iteration counts or named parameters instead of requiring every runtime flag to be hard-coded in `entries.args`.
+- After a saved test stops on missing required arguments, interactive CLI mode can now accept short follow-ups such as `for 10 iterations`, `iteration is 10`, or `name is John` and retry the same saved test on the same chosen system.
 - Closed-world catalog mode now auto-enables in this repo when `registry/catalog.json` exists. `TEST_CATALOG_PATH` remains an override, and `TEST_CATALOG_PATH=""` explicitly disables repo auto-discovery.
 - The shipped default catalog file is intentionally empty, so unknown requests now fail safely and point the user to the catalog file instead of falling back to freeform execution.
 - CLI dry runs now surface catalog clarification failures as non-zero results instead of pretending the request is runnable.

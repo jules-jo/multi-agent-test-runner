@@ -122,6 +122,7 @@ Catalog-backed execution now has a first-pass runtime argument resolver.
 Current behavior:
 
 - if the request contains value-oriented runtime intent such as `for 10 iterations`
+- or keyed follow-up phrases such as `iteration is 10` or `name is John`
 - the resolver probes the selected saved command with `--help` and `-h`
 - it parses the available CLI options from that help output
 - it maps the requested value label onto the best matching value-taking option
@@ -132,6 +133,7 @@ Current behavior:
 Current limitations:
 
 - this is currently a first-pass value-argument mapper, not a full semantic planner for all possible CLI shapes
+- keyed assignment parsing is now supported for simple `label is value` / `label = value` phrases, but broader conversational paraphrases still need explicit coverage
 - if the resolver cannot confidently map the request onto a supported option, the run fails closed and asks for clarification instead of guessing
 - required-argument detection is usage-text driven, so it is strongest for CLIs with conventional `usage:` / `--help` output
 

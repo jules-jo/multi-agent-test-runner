@@ -18,7 +18,7 @@
 
 ## Main Regression Bundle Status
 
-- Fact: The main regression bundle covering config, catalog, catalog runtime arguments, intent service, CLI, parser, execution targets, execution attempts, orchestrator delegation wiring, and troubleshooter wiring is passing at `350 passed, 19 warnings`.
+- Fact: The main regression bundle covering config, catalog, catalog runtime arguments, intent service, CLI, parser, execution targets, execution attempts, orchestrator delegation wiring, and troubleshooter wiring is passing at `357 passed, 19 warnings`.
 - Scope: runtime
 - Confidence: high
 - Source: `./.venv/bin/pytest -q tests/test_config.py tests/test_catalog.py tests/test_catalog_arguments.py tests/test_intent_service.py tests/test_cli.py tests/test_parser.py tests/test_execution_targets.py tests/test_execution_attempts.py tests/test_orchestrator_delegation_wiring.py tests/test_troubleshooter_wiring.py`
@@ -266,7 +266,7 @@
 
 ## Runtime Help-Probed Arguments
 
-- Fact: Catalog-backed full runs now have a first-pass runtime argument resolver that probes the saved command with `--help` or `-h` on the selected local or SSH system, parses the available options, maps value-oriented user phrases such as `for 10 iterations` onto supported CLI flags, and blocks execution early when help output suggests required arguments are still missing.
+- Fact: Catalog-backed full runs now have a first-pass runtime argument resolver that probes the saved command with `--help` or `-h` on the selected local or SSH system, parses the available options, maps value-oriented user phrases such as `for 10 iterations`, `iteration is 10`, and `name is John` onto supported CLI flags, and blocks execution early when help output suggests required arguments are still missing.
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/catalog_arguments.py`, `src/test_runner/agents/intent_service.py`, and `tests/test_catalog_arguments.py`
@@ -282,7 +282,7 @@
 
 ## Pending Runtime-Argument Follow-Up
 
-- Fact: Interactive CLI sessions now preserve pending runtime-argument clarification state, so after a saved test stops on missing required arguments, a short follow-up like `for 10 iterations` can be rewritten into a retry of the same saved test on the same chosen system.
+- Fact: Interactive CLI sessions now preserve pending runtime-argument clarification state, so after a saved test stops on missing required arguments, a short follow-up like `for 10 iterations`, `iteration is 10`, or `name is John` can be rewritten into a retry of the same saved test on the same chosen system.
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/cli.py` and `tests/test_cli.py`

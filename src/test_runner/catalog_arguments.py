@@ -70,6 +70,13 @@ class RuntimeArgumentResolution:
 
 _VALUE_HINT_PATTERNS = (
     re.compile(
+        r"\b(?P<label>[a-z][a-z0-9_-]*(?:\s+[a-z][a-z0-9_-]*){0,2})\s*"
+        r"(?:is|are|=|:)\s*"
+        r"(?P<value>\"[^\"]+\"|'[^']+'|[^\s,]+)"
+        r"(?=(?:\s+and\b|\s*,|$))",
+        flags=re.IGNORECASE,
+    ),
+    re.compile(
         r"\bfor\s+(?P<value>\d+)\s+(?P<label>[a-z][a-z0-9_-]*(?:\s+[a-z][a-z0-9_-]*){0,2})\b",
         flags=re.IGNORECASE,
     ),
@@ -94,6 +101,17 @@ def _normalize_tokens(text: str) -> list[str]:
             token = token[:-1]
         normalized.append(token)
     return normalized
+
+
+def _normalize_hint_key(label: str, value: str) -> tuple[str, str]:
+    return (" ".join(_normalize_tokens(label)), value.strip().lower())
+
+
+def _strip_wrapping_quotes(value: str) -> str:
+    stripped = value.strip()
+    if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in {'"', "'"}:
+        return stripped[1:-1]
+    return stripped
 
 
 class CatalogArgumentResolver:
@@ -193,18 +211,24 @@ class CatalogArgumentResolver:
         )
 
     def _extract_value_hints(self, request: str) -> list[RequestedValueHint]:
-        hints: list[RequestedValueHint] = []
+        candidates: list[tuple[int, RequestedValueHint]] = []
         seen: set[tuple[str, str]] = set()
         for pattern in _VALUE_HINT_PATTERNS:
             for match in pattern.finditer(request):
                 label = match.group("label").strip()
-                value = match.group("value").strip()
-                key = (label.lower(), value)
+                value = _strip_wrapping_quotes(match.group("value"))
+                key = _normalize_hint_key(label, value)
                 if key in seen:
                     continue
                 seen.add(key)
-                hints.append(RequestedValueHint(label=label, value=value))
-        return hints
+                candidates.append(
+                    (
+                        match.start(),
+                        RequestedValueHint(label=label, value=value),
+                    )
+                )
+        candidates.sort(key=lambda item: item[0])
+        return [hint for _, hint in candidates]
 
     async def _probe_help_text(self, command: TestCommand) -> tuple[str, tuple[str, ...]]:
         probe_commands = self._build_probe_commands(command)

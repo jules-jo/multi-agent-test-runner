@@ -67,6 +67,71 @@ class TestCatalogArgumentResolver:
         assert result.needs_clarification is False
 
     @pytest.mark.asyncio
+    async def test_maps_runtime_iteration_assignment_phrase(self, monkeypatch):
+        resolver = CatalogArgumentResolver()
+
+        async def fake_probe(command):
+            return (
+                "Usage: agent_test.py [options]\n"
+                "  -l, --loops LOOPS  Number of iterations to run\n"
+                "  --mode MODE        Execution mode\n",
+                (),
+            )
+
+        monkeypatch.setattr(resolver, "_probe_help_text", fake_probe)
+
+        result = await resolver.resolve(
+            _make_command(),
+            request=_make_request("run agent test, iteration is 10"),
+        )
+
+        assert result.command is not None
+        assert result.command.command == [
+            "python3.8",
+            "agent_test.py",
+            "-l",
+            "10",
+        ]
+        assert result.command.metadata["catalog_runtime_args"] == ["-l", "10"]
+        assert result.needs_clarification is False
+
+    @pytest.mark.asyncio
+    async def test_maps_text_and_numeric_assignments_together(self, monkeypatch):
+        resolver = CatalogArgumentResolver()
+
+        async def fake_probe(command):
+            return (
+                "usage: agent_test.py [-h] --name NAME -l LOOPS\n"
+                "  --name NAME        Display name for the run\n"
+                "  -l, --loops LOOPS  Number of iterations to run\n",
+                (),
+            )
+
+        monkeypatch.setattr(resolver, "_probe_help_text", fake_probe)
+
+        result = await resolver.resolve(
+            _make_command(),
+            request=_make_request("run agent test name is John and iteration is 10"),
+        )
+
+        assert result.command is not None
+        assert result.command.command == [
+            "python3.8",
+            "agent_test.py",
+            "--name",
+            "John",
+            "-l",
+            "10",
+        ]
+        assert result.command.metadata["catalog_runtime_args"] == [
+            "--name",
+            "John",
+            "-l",
+            "10",
+        ]
+        assert result.needs_clarification is False
+
+    @pytest.mark.asyncio
     async def test_unmapped_runtime_value_requires_clarification(self, monkeypatch):
         resolver = CatalogArgumentResolver()
 

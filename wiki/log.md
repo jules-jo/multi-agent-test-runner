@@ -67,3 +67,5 @@
 - Extended runtime argument resolution so catalog-backed runs detect clearly required arguments from help/usage text and fail closed for clarification before execution.
 - Added interactive pending runtime-argument clarification so a short follow-up like `for 10 iterations` can retry the same saved test on the same chosen system.
 - Re-ran the main regression bundle successfully after the required-argument clarification change: `355 passed, 19 warnings`.
+- Extended runtime argument extraction beyond numeric shorthand so keyed phrases like `iteration is 10`, `name is John`, and mixed replies now map onto probed CLI options in catalog mode.
+- Re-ran the main regression bundle successfully after the keyed runtime-argument parsing change: `357 passed, 19 warnings`.
