@@ -25,6 +25,7 @@ from test_runner.agents.parser import (
     TestIntent,
 )
 from test_runner.catalog import CatalogRegistry
+from test_runner.catalog_arguments import CatalogArgumentResolver
 from test_runner.config import Config
 from test_runner.execution.command_translator import (
     CommandTranslator,
@@ -145,6 +146,7 @@ class IntentParserService:
         command_translator: CommandTranslator | None = None,
         catalog_registry: CatalogRegistry | None = None,
         catalog_system_override: str | None = None,
+        catalog_argument_resolver: CatalogArgumentResolver | None = None,
     ) -> None:
         self._config = config
         self._parse_mode = parse_mode
@@ -152,6 +154,9 @@ class IntentParserService:
         self._translator = command_translator or CommandTranslator()
         self._catalog_registry = catalog_registry or self._load_catalog_registry()
         self._catalog_system_override = (catalog_system_override or "").strip()
+        self._catalog_argument_resolver = (
+            catalog_argument_resolver or CatalogArgumentResolver()
+        )
 
         # Only build the LLM-backed parser if we might need it
         self._llm_parser: NaturalLanguageParser | None = None
@@ -209,6 +214,20 @@ class IntentParserService:
             env=env,
         )
         warnings.extend(translation.warnings)
+
+        if self._catalog_registry is not None and translation.commands:
+            (
+                translation,
+                runtime_warnings,
+                runtime_needs_clarification,
+            ) = await self._resolve_catalog_runtime_arguments(
+                parsed,
+                translation,
+            )
+            warnings.extend(runtime_warnings)
+            translation_needs_clarification = (
+                translation_needs_clarification or runtime_needs_clarification
+            )
 
         # --- Step 3: Assess confidence ---
         needs_clarification = translation_needs_clarification or (
@@ -354,6 +373,37 @@ class IntentParserService:
         if not self._config.test_catalog_path:
             return None
         return CatalogRegistry.from_path(self._config.test_catalog_path)
+
+    async def _resolve_catalog_runtime_arguments(
+        self,
+        parsed: ParsedTestRequest,
+        translation: TranslationResult,
+    ) -> tuple[TranslationResult, list[str], bool]:
+        """Resolve request-time CLI arguments for catalog commands."""
+        resolved_commands = []
+        warnings: list[str] = []
+        needs_clarification = False
+
+        for command in translation.commands:
+            resolved = await self._catalog_argument_resolver.resolve(
+                command,
+                request=parsed,
+            )
+            warnings.extend(resolved.warnings)
+            if resolved.command is None:
+                needs_clarification = True
+                continue
+            resolved_commands.append(resolved.command)
+
+        return (
+            TranslationResult(
+                commands=resolved_commands,
+                warnings=translation.warnings,
+                source_request=translation.source_request,
+            ),
+            warnings,
+            needs_clarification,
+        )
 
     def _translate(
         self,

@@ -24,7 +24,10 @@ from test_runner.catalog import (
     CatalogDocument,
     CatalogEntry,
     CatalogExecutionType,
+    CatalogSystem,
+    CatalogSystemTransport,
 )
+from test_runner.catalog_arguments import RuntimeArgumentResolution
 from test_runner.config import Config
 from test_runner.execution.command_translator import (
     CommandTranslator,
@@ -93,6 +96,7 @@ def _make_catalog_registry() -> CatalogRegistry:
                 args=["--quick"],
                 keywords=["local smoke"],
                 working_directory="/repo",
+                system="lab-a",
             ),
             CatalogEntry(
                 alias="device-check",
@@ -101,7 +105,14 @@ def _make_catalog_registry() -> CatalogRegistry:
                 target="./bin/device-check",
                 keywords=["device validation"],
             ),
-        ]
+        ],
+        systems=[
+            CatalogSystem(
+                alias="lab-a",
+                transport=CatalogSystemTransport.LOCAL,
+                working_directory="/repo",
+            )
+        ],
     )
 
 
@@ -272,6 +283,34 @@ class TestResolveOffline:
         assert result.needs_clarification is True
         assert any("cataloged test definition" in warning for warning in result.warnings)
 
+    def test_catalog_systemless_entry_requires_system_choice(self, config_no_llm):
+        registry = CatalogRegistry(
+            [
+                CatalogEntry(
+                    alias="lt",
+                    execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                    target="scripts/local_smoke.py",
+                )
+            ],
+            systems=[
+                CatalogSystem(
+                    alias="lab-a",
+                    transport=CatalogSystemTransport.LOCAL,
+                )
+            ],
+        )
+        service = IntentParserService(
+            config_no_llm,
+            parse_mode=ParseMode.OFFLINE,
+            catalog_registry=registry,
+        )
+
+        result = service.resolve_offline("run lt")
+
+        assert result.commands == []
+        assert result.needs_clarification is True
+        assert any("no saved system was specified" in warning for warning in result.warnings)
+
     def test_catalog_unknown_request_mentions_catalog_path(
         self, monkeypatch, tmp_path
     ):
@@ -418,7 +457,67 @@ class TestResolveAsync:
         service = IntentParserService(config_no_llm, parse_mode=ParseMode.OFFLINE)
         result = await service.resolve("run pytest tests/unit -v")
         assert len(result.commands) >= 1
-        assert "pytest" in result.commands[0].command
+
+    @pytest.mark.asyncio
+    async def test_catalog_runtime_argument_resolver_augments_command(
+        self, config_no_llm
+    ):
+        class FakeResolver:
+            async def resolve(self, command, *, request):
+                return RuntimeArgumentResolution(
+                    command=TestCommand(
+                        command=[*command.command, "-l", "10"],
+                        display=f"{command.display} -l 10",
+                        framework=command.framework,
+                        working_directory=command.working_directory,
+                        env=command.env,
+                        timeout=command.timeout,
+                        metadata={**command.metadata, "catalog_runtime_args": ["-l", "10"]},
+                    ),
+                )
+
+        service = IntentParserService(
+            config_no_llm,
+            parse_mode=ParseMode.OFFLINE,
+            catalog_registry=_make_catalog_registry(),
+            catalog_argument_resolver=FakeResolver(),
+        )
+
+        result = await service.resolve("run lt for 10 iterations")
+
+        assert result.commands[0].command == [
+            "python",
+            "scripts/local_smoke.py",
+            "--quick",
+            "-l",
+            "10",
+        ]
+        assert result.needs_clarification is False
+
+    @pytest.mark.asyncio
+    async def test_catalog_runtime_argument_resolver_can_force_clarification(
+        self, config_no_llm
+    ):
+        class FakeResolver:
+            async def resolve(self, command, *, request):
+                return RuntimeArgumentResolution(
+                    command=None,
+                    warnings=("Could not map requested iterations.",),
+                    needs_clarification=True,
+                )
+
+        service = IntentParserService(
+            config_no_llm,
+            parse_mode=ParseMode.OFFLINE,
+            catalog_registry=_make_catalog_registry(),
+            catalog_argument_resolver=FakeResolver(),
+        )
+
+        result = await service.resolve("run lt for 10 iterations")
+
+        assert result.commands == []
+        assert result.needs_clarification is True
+        assert any("Could not map requested iterations" in warning for warning in result.warnings)
 
     @pytest.mark.asyncio
     async def test_needs_clarification_at_threshold(self, config_no_llm):

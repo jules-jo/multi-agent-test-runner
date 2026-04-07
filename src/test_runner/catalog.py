@@ -108,7 +108,7 @@ class CatalogEntry(BaseModel):
     description: str = ""
     execution_type: CatalogExecutionType
     target: str = Field(min_length=1)
-    system: str = "local"
+    system: str = ""
     args: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     working_directory: str = ""
@@ -127,8 +127,7 @@ class CatalogEntry(BaseModel):
     @field_validator("system")
     @classmethod
     def _normalize_system(cls, value: str) -> str:
-        stripped = value.strip()
-        return stripped or "local"
+        return value.strip()
 
     @field_validator("keywords", mode="after")
     @classmethod
@@ -314,6 +313,7 @@ class CatalogRegistry:
             )
 
         system = self._resolve_system(entry)
+        default_system_alias = entry.system
         if system_override:
             override_system = self._systems.get(self._normalize_phrase(system_override))
             if override_system is None:
@@ -326,14 +326,29 @@ class CatalogRegistry:
                     source_request=request,
                 )
             system = override_system
-            if self._normalize_phrase(entry.system) != self._normalize_phrase(system.alias):
+            if (
+                entry.system
+                and self._normalize_phrase(entry.system)
+                != self._normalize_phrase(system.alias)
+            ):
                 warnings.append(
-                    f"Overriding saved system {entry.system!r} with {system.alias!r} for this run."
+                    f"Overriding saved default system {entry.system!r} with {system.alias!r} for this run."
                 )
-        if system is None:
+        elif entry.system and system is None:
             warnings.append(
                 f"Catalog entry {entry.alias!r} references unknown system "
                 f"{entry.system!r}.",
+            )
+            return TranslationResult(
+                commands=[],
+                warnings=warnings,
+                source_request=request,
+            )
+        elif system is None:
+            available_systems = ", ".join(system.alias for system in self.systems)
+            warnings.append(
+                f"Matched catalog entry {entry.alias!r} but no saved system was specified. "
+                f"Choose one of: {available_systems}."
             )
             return TranslationResult(
                 commands=[],
@@ -358,8 +373,10 @@ class CatalogRegistry:
                 "catalog_alias": entry.alias,
                 "catalog_description": entry.description,
                 "catalog_execution_type": entry.execution_type.value,
+                "catalog_target": entry.target,
+                "catalog_entry_args": list(entry.args),
                 "catalog_system": system.alias,
-                "catalog_default_system": entry.system,
+                "catalog_default_system": default_system_alias,
                 "catalog_system_transport": system.transport.value,
                 "catalog_system_config": system.model_dump(mode="python"),
                 "catalog_system_override": system_override or "",
@@ -444,6 +461,8 @@ class CatalogRegistry:
         return resolved
 
     def _resolve_system(self, entry: CatalogEntry) -> CatalogSystem | None:
+        if not entry.system:
+            return None
         return self._systems.get(self._normalize_phrase(entry.system))
 
     @staticmethod
@@ -570,7 +589,8 @@ class CatalogRepository:
             referenced_by = sorted(
                 entry.alias
                 for entry in document.entries
-                if CatalogRegistry._normalize_phrase(entry.system) == existing_key
+                if entry.system
+                and CatalogRegistry._normalize_phrase(entry.system) == existing_key
             )
             if referenced_by:
                 refs = ", ".join(referenced_by)
@@ -593,7 +613,7 @@ class CatalogRepository:
         document = self.load_document()
         if self.has_entry_alias(entry.alias):
             raise ValueError(f"Catalog alias {entry.alias!r} already exists.")
-        if self.get_system(entry.system) is None:
+        if entry.system and self.get_system(entry.system) is None:
             raise ValueError(
                 f"Catalog entry {entry.alias!r} references unknown system "
                 f"{entry.system!r}.",
@@ -629,7 +649,7 @@ class CatalogRepository:
         if replacement_index is None:
             raise ValueError(f"Catalog alias {existing_alias!r} does not exist.")
 
-        if self.get_system(updated_entry.system) is None:
+        if updated_entry.system and self.get_system(updated_entry.system) is None:
             raise ValueError(
                 f"Catalog entry {updated_entry.alias!r} references unknown system "
                 f"{updated_entry.system!r}.",
@@ -678,7 +698,8 @@ class CatalogRepository:
         referenced_by = sorted(
             entry.alias
             for entry in document.entries
-            if CatalogRegistry._normalize_phrase(entry.system) == normalized
+            if entry.system
+            and CatalogRegistry._normalize_phrase(entry.system) == normalized
         )
         if referenced_by:
             refs = ", ".join(referenced_by)

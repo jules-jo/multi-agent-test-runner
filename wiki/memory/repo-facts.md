@@ -18,11 +18,11 @@
 
 ## Main Regression Bundle Status
 
-- Fact: The main regression bundle covering config, catalog, intent service, CLI, parser, execution targets, execution attempts, orchestrator delegation wiring, and troubleshooter wiring is passing at `338 passed, 16 warnings`.
+- Fact: The main regression bundle covering config, catalog, catalog runtime arguments, intent service, CLI, parser, execution targets, execution attempts, orchestrator delegation wiring, and troubleshooter wiring is passing at `350 passed, 19 warnings`.
 - Scope: runtime
 - Confidence: high
-- Source: `./.venv/bin/pytest -q tests/test_config.py tests/test_catalog.py tests/test_intent_service.py tests/test_cli.py tests/test_parser.py tests/test_execution_targets.py tests/test_execution_attempts.py tests/test_orchestrator_delegation_wiring.py tests/test_troubleshooter_wiring.py`
-- Last verified: 2026-04-06
+- Source: `./.venv/bin/pytest -q tests/test_config.py tests/test_catalog.py tests/test_catalog_arguments.py tests/test_intent_service.py tests/test_cli.py tests/test_parser.py tests/test_execution_targets.py tests/test_execution_attempts.py tests/test_orchestrator_delegation_wiring.py tests/test_troubleshooter_wiring.py`
+- Last verified: 2026-04-07
 
 ## CLI Integration Status
 
@@ -50,11 +50,11 @@
 
 ## Interactive Session Memory
 
-- Fact: Interactive CLI sessions now keep lightweight turn-local memory for the last matched saved alias, pending ambiguous alias choices, and the last selected saved system. This enables follow-ups like `rerun that` and short clarification replies such as `2`.
+- Fact: Interactive CLI sessions now keep lightweight turn-local memory for the last matched saved alias, pending ambiguous alias choices, pending saved-system choices for systemless entries, and the last selected saved system. This enables follow-ups like `rerun that` and short clarification replies such as `2`.
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/cli.py` and `tests/test_cli.py`
-- Last verified: 2026-04-06
+- Last verified: 2026-04-07
 
 ## CLI Prompt Ordering Nuance
 
@@ -210,19 +210,19 @@
 
 ## Catalog Execution Types
 
-- Fact: The current machine-readable catalog supports saved `python_script` and `executable` definitions, and catalog mode ignores ad hoc extra args so execution stays bounded to the saved definition.
+- Fact: The current machine-readable catalog supports saved `python_script` and `executable` definitions; ad hoc explicit CLI args are still ignored in catalog mode, while request-specific runtime value arguments are now derived separately from saved command help output.
 - Scope: repo
 - Confidence: high
-- Source: `src/test_runner/catalog.py`
-- Last verified: 2026-04-06
+- Source: `src/test_runner/catalog.py`, `src/test_runner/catalog_arguments.py`
+- Last verified: 2026-04-07
 
 ## Catalog System Schema
 
-- Fact: The authoritative catalog schema now includes named execution systems with `local` and `ssh` transports; test entries reference those systems by alias instead of embedding host details ad hoc.
+- Fact: The authoritative catalog schema now includes named execution systems with `local` and `ssh` transports; test entries may optionally carry a default system alias, but system choice can also be deferred to run time and clarified interactively.
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/catalog.py` and `registry/catalog.example.json`
-- Last verified: 2026-04-06
+- Last verified: 2026-04-07
 
 ## System Python Command
 
@@ -250,11 +250,27 @@
 
 ## Saved System Overrides
 
-- Fact: Catalog-backed requests can now use a saved per-run system override such as `on lab-a`. The override must resolve to a saved system alias in the catalog and changes the selected execution system without leaving closed-world mode.
+- Fact: Catalog-backed requests can now use a saved per-run system override such as `on lab-a` or `in lab-a`. The override must resolve to a saved system alias in the catalog and changes the selected execution system without leaving closed-world mode.
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/catalog.py`, `src/test_runner/agents/intent_service.py`, `src/test_runner/orchestrator/hub.py`, and `src/test_runner/cli.py`
-- Last verified: 2026-04-06
+- Last verified: 2026-04-07
+
+## Runtime Help-Probed Arguments
+
+- Fact: Catalog-backed full runs now have a first-pass runtime argument resolver that probes the saved command with `--help` or `-h` on the selected local or SSH system, parses the available options, and maps value-oriented user phrases such as `for 10 iterations` onto supported CLI flags.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/catalog_arguments.py`, `src/test_runner/agents/intent_service.py`, and `tests/test_catalog_arguments.py`
+- Last verified: 2026-04-07
+
+## Systemless Entry Clarification
+
+- Fact: When a saved catalog entry has no default system, full interactive runs now fail closed with a saved-system clarification prompt instead of silently defaulting to local execution.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/catalog.py`, `src/test_runner/cli.py`, and `tests/test_cli.py`
+- Last verified: 2026-04-07
 
 ## SSH Preflight
 
@@ -287,6 +303,7 @@
 - Confidence: high
 - Source: `src/test_runner/cli.py` and `tests/test_cli.py`
 - Last verified: 2026-04-06
+
 
 ## Catalog Growth Rule
 

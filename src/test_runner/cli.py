@@ -220,6 +220,8 @@ class InteractiveSessionState:
     last_system_alias: str = ""
     last_request: str = ""
     pending_clarification_aliases: tuple[str, ...] = ()
+    pending_system_aliases: tuple[str, ...] = ()
+    pending_system_entry_alias: str = ""
 
 
 @dataclass(frozen=True)
@@ -396,21 +398,24 @@ def _extract_known_system_override(
     request: str,
     repository: CatalogRepository | None,
 ) -> str:
-    """Extract a saved system alias from a trailing `on <system>` phrase."""
+    """Extract a saved system alias from `on <system>` or `in <system>` phrasing."""
     if repository is None:
         return ""
 
-    match = re.search(r"\bon\s+(.+?)\s*$", request.strip(), flags=re.IGNORECASE)
-    if match is None:
-        return ""
-
-    candidate = match.group(1).strip()
-    if not candidate:
-        return ""
-    system = repository.get_system(candidate)
-    if system is None:
-        return ""
-    return system.alias
+    normalized_request = _normalize_frontdoor_text(request)
+    systems = sorted(
+        repository.list_systems(),
+        key=lambda system: len(system.alias),
+        reverse=True,
+    )
+    for system in systems:
+        alias = _normalize_frontdoor_text(system.alias)
+        if not alias:
+            continue
+        pattern = rf"(?:^| )(?:on|in) {re.escape(alias)}(?:$| )"
+        if re.search(pattern, normalized_request):
+            return system.alias
+    return ""
 
 
 def _prepare_interactive_request(
@@ -424,6 +429,24 @@ def _prepare_interactive_request(
     stripped = request.strip()
     if not stripped:
         return PreparedInteractiveRequest(canonical_request=request)
+
+    if (
+        session_state.pending_system_entry_alias
+        and session_state.pending_system_aliases
+    ):
+        chosen_system = _match_pending_alias_choice(
+            stripped,
+            session_state.pending_system_aliases,
+        )
+        if chosen_system:
+            return PreparedInteractiveRequest(
+                canonical_request=f"run {session_state.pending_system_entry_alias}",
+                system_override=chosen_system,
+                note=(
+                    f"Using saved system {chosen_system!r} for "
+                    f"{session_state.pending_system_entry_alias!r}."
+                ),
+            )
 
     if session_state.pending_clarification_aliases:
         chosen_alias = _match_pending_alias_choice(
@@ -500,9 +523,14 @@ def _remember_catalog_reference(
         return
 
     session_state.last_catalog_alias = resolved.entry.alias
-    session_state.last_system_alias = system_override or resolved.entry.system
+    if system_override:
+        session_state.last_system_alias = system_override
+    elif resolved.entry.system:
+        session_state.last_system_alias = resolved.entry.system
     session_state.last_request = request
     session_state.pending_clarification_aliases = ()
+    session_state.pending_system_aliases = ()
+    session_state.pending_system_entry_alias = ""
 
 
 def _extract_ambiguous_catalog_aliases(state: RunState) -> tuple[str, ...]:
@@ -532,6 +560,45 @@ def _print_alias_clarification_prompt(aliases: tuple[str, ...]) -> None:
     """Tell the user how to resolve an ambiguous saved-test request."""
     console.print("[yellow]Multiple saved tests matched. Reply with one alias or number:[/yellow]")
     for index, alias in enumerate(aliases, start=1):
+        console.print(f"[dim]- {index}. {alias}[/dim]")
+
+
+def _extract_missing_system_prompt(
+    state: RunState,
+) -> tuple[str, tuple[str, ...]]:
+    """Pull a pending saved-system choice from a failed run state."""
+    pattern = re.compile(
+        r"Matched catalog entry '(.+?)' but no saved system was specified\. "
+        r"Choose one of: (.+?)\.\s*$",
+        flags=re.IGNORECASE,
+    )
+    for message in [
+        *state.errors,
+        *state.intent_resolution.get("warnings", []),
+    ]:
+        match = pattern.search(message)
+        if match is None:
+            continue
+        alias = match.group(1).strip()
+        systems = tuple(
+            system.strip()
+            for system in match.group(2).split(",")
+            if system.strip()
+        )
+        if alias and systems:
+            return alias, systems
+    return "", ()
+
+
+def _print_system_clarification_prompt(
+    entry_alias: str,
+    systems: tuple[str, ...],
+) -> None:
+    """Tell the user to pick a saved system for a matched test."""
+    console.print(
+        f"[yellow]Saved test {entry_alias!r} needs a system. Reply with one system alias or number:[/yellow]"
+    )
+    for index, alias in enumerate(systems, start=1):
         console.print(f"[dim]- {index}. {alias}[/dim]")
 
 
@@ -588,10 +655,10 @@ def _prompt_optional_int(prompt: str, *, default: int | None = None) -> int | No
 
 
 def _prompt_saved_args(*, default: list[str] | None = None) -> list[str]:
-    """Prompt for optional saved arguments."""
+    """Prompt for optional baseline arguments."""
     while True:
         raw = _prompt_text(
-            "Saved arguments",
+            "Baseline arguments (optional)",
             default=" ".join(default or []),
         )
         if not raw:
@@ -817,12 +884,15 @@ def _collect_catalog_entry(
         default=default_target,
     )
 
-    current_system_alias = existing_entry.system if existing_entry is not None else "local"
-    system_alias = _prompt_text("System alias", default=current_system_alias) or "local"
+    current_system_alias = existing_entry.system if existing_entry is not None else ""
+    system_alias = _prompt_text(
+        "Default system alias (optional; leave blank to choose at run time)",
+        default=current_system_alias,
+    )
 
-    existing_system = repository.get_system(system_alias)
+    existing_system = repository.get_system(system_alias) if system_alias else None
     new_system: CatalogSystem | None = None
-    if existing_system is None:
+    if system_alias and existing_system is None:
         new_system = _prompt_catalog_system(system_alias)
 
     description = _prompt_text(
@@ -871,9 +941,11 @@ def _render_catalog_registration_summary(
     console.print(f"[dim]- alias: {entry.alias}[/dim]")
     console.print(f"[dim]- type: {entry.execution_type.value}[/dim]")
     console.print(f"[dim]- target: {entry.target}[/dim]")
-    console.print(f"[dim]- system: {entry.system}[/dim]")
+    console.print(
+        f"[dim]- default system: {entry.system or 'choose at run time'}[/dim]"
+    )
     if entry.args:
-        console.print(f"[dim]- args: {' '.join(entry.args)}[/dim]")
+        console.print(f"[dim]- baseline args: {' '.join(entry.args)}[/dim]")
     if entry.keywords:
         console.print(f"[dim]- keywords: {', '.join(entry.keywords)}[/dim]")
     if entry.working_directory:
@@ -941,11 +1013,13 @@ def _print_catalog_entry_details(
     console.print(f"[cyan]Catalog entry:[/cyan] {entry.alias}")
     console.print(f"[dim]- type: {entry.execution_type.value}[/dim]")
     console.print(f"[dim]- target: {entry.target}[/dim]")
-    console.print(f"[dim]- system: {entry.system}[/dim]")
+    console.print(
+        f"[dim]- default system: {entry.system or 'choose at run time'}[/dim]"
+    )
     if entry.description:
         console.print(f"[dim]- description: {entry.description}[/dim]")
     if entry.args:
-        console.print(f"[dim]- args: {' '.join(entry.args)}[/dim]")
+        console.print(f"[dim]- baseline args: {' '.join(entry.args)}[/dim]")
     if entry.keywords:
         console.print(f"[dim]- keywords: {', '.join(entry.keywords)}[/dim]")
     if entry.working_directory:
@@ -1023,7 +1097,8 @@ def _handle_catalog_command(
             )
             for entry in entries:
                 console.print(
-                    f"[dim]- {entry.alias}: {entry.execution_type.value} on {entry.system} -> {entry.target}[/dim]"
+                    f"[dim]- {entry.alias}: {entry.execution_type.value} on "
+                    f"{entry.system or 'runtime system'} -> {entry.target}[/dim]"
                 )
             return 0
 
@@ -1041,7 +1116,7 @@ def _handle_catalog_command(
         if command.action == "show":
             _print_catalog_entry_details(
                 entry,
-                system=repository.get_system(entry.system),
+                system=repository.get_system(entry.system) if entry.system else None,
             )
             return 0
 
@@ -1552,8 +1627,21 @@ async def _handle_request(
     state = await orchestrator.run(request)
     _print_run_notes(state)
 
+    missing_system_alias, missing_system_choices = _extract_missing_system_prompt(state)
+    if session_state is not None and missing_system_alias and missing_system_choices:
+        session_state.pending_clarification_aliases = ()
+        session_state.pending_system_entry_alias = missing_system_alias
+        session_state.pending_system_aliases = missing_system_choices
+        _print_system_clarification_prompt(
+            missing_system_alias,
+            missing_system_choices,
+        )
+        return 0
+
     ambiguous_aliases = _extract_ambiguous_catalog_aliases(state)
     if session_state is not None and ambiguous_aliases:
+        session_state.pending_system_entry_alias = ""
+        session_state.pending_system_aliases = ()
         session_state.pending_clarification_aliases = ambiguous_aliases
         _print_alias_clarification_prompt(ambiguous_aliases)
         return 0

@@ -38,6 +38,8 @@
 - Added a deterministic JSON-backed catalog registry for saved aliases and keywords, with immediate support for `python_script` and `executable` definitions.
 - Wired intent resolution and orchestrator execution gating so catalog mode blocks unknown or ambiguous requests before execution when `TEST_CATALOG_PATH` is configured.
 - Updated CLI dry-run behavior so catalog clarification failures return a non-zero result instead of being treated as runnable.
+- Added `scripts/recover-terminal.sh` to recover broken terminal input modes caused by crashed apps leaving keyboard-enhancement sequences enabled.
+- Removed `scripts/recover-terminal.sh` at user request and cleared the corresponding repo-memory entry.
 - Extended the catalog schema to include named execution systems, added a repo-local example catalog file, and documented that non-local systems currently fail closed until remote execution is implemented.
 - Implemented `SSHTarget`, moved catalog transport choice to execution time, and recorded that remote catalog entries now resolve per-command through saved SSH system metadata.
 - Made `registry/catalog.json` the repo-local default catalog path, added an explicit empty-string opt-out for tests and legacy flows, and documented that the shipped default catalog is intentionally empty.
@@ -56,3 +58,7 @@
 - Re-ran the main regression bundle successfully after the system-level Python interpreter change: `340 passed, 16 warnings`.
 - Added a run note for cloning and project-scoped setup of `oh-my-codex`, including verification output and remaining host dependency gaps (`cargo`, `tmux`).
 - Extended the `oh-my-codex` run note with the standalone global OMX install, PATH location, and final global verification result.
+- Made saved catalog systems optional defaults instead of a required per-entry field, so system choice can now be clarified at run time for systemless entries.
+- Added a first-pass runtime argument resolver that probes saved command help on the selected system and maps value-oriented request phrases onto supported CLI flags.
+- Extended interactive CLI clarification so a systemless saved test can prompt for a saved system alias or number and then rerun on that chosen system.
+- Re-ran the main regression bundle successfully after the system-selection and runtime-argument changes: `350 passed, 19 warnings`.

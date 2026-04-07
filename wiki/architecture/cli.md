@@ -38,7 +38,8 @@ Interactive mode is still task-oriented, not general chat-oriented, but it now h
 - actual test requests continue through the orchestrator path
 - the session now remembers the last resolved saved alias so follow-ups like `rerun that` can be rewritten into a concrete saved test request
 - when a saved-test request is ambiguous, the session can hold pending alias choices and accept a short reply such as `2` or `beta`
-- a request can now include a trailing saved system alias such as `on lab-a`; the CLI passes that as a controlled per-run override into catalog resolution
+- when a saved test has no default system, the session can hold pending saved-system choices and accept a short reply such as `2` or `lab-a`
+- a request can now include a saved system alias such as `on lab-a` or `in lab-a`; the CLI passes that as a controlled per-run override into catalog resolution
 - when a request fails because no saved catalog alias matches, the CLI can now offer an interactive registration flow that collects entry details, persists them to the catalog, and optionally reruns the saved alias immediately
 - explicit catalog-management commands such as `list saved tests`, `show test lt`, `edit test lt`, `delete test lt`, `list systems`, `show system lab-a`, `edit system lab-a`, and `delete system lab-a` are now handled locally by the CLI and bypass the orchestrator entirely
 

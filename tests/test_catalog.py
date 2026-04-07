@@ -53,6 +53,7 @@ def _make_registry() -> CatalogRegistry:
                 execution_type=CatalogExecutionType.EXECUTABLE,
                 target="./bin/device-check",
                 keywords=["hardware validation", "device validation"],
+                system="devbox",
             ),
         ],
         systems=[
@@ -195,6 +196,23 @@ class TestCatalogRepositoryPersistence:
         loaded = CatalogRepository(path).load_document()
         assert loaded.entries[0].alias == "device-check"
         assert loaded.systems[0].alias == "lab-a"
+
+    def test_add_entry_allows_runtime_system_selection(self, tmp_path) -> None:
+        path = tmp_path / "catalog.json"
+        repo = CatalogRepository(path)
+        repo.save_document(CatalogDocument())
+
+        repo.add_entry(
+            CatalogEntry(
+                alias="device-check",
+                execution_type=CatalogExecutionType.EXECUTABLE,
+                target="./bin/device-check",
+            )
+        )
+
+        loaded = CatalogRepository(path).load_document()
+        assert loaded.entries[0].alias == "device-check"
+        assert loaded.entries[0].system == ""
 
     def test_password_ssh_system_requires_password_env_var(self, tmp_path) -> None:
         path = tmp_path / "catalog.json"
@@ -377,6 +395,7 @@ class TestCatalogRegistryTranslation:
                     alias="lt",
                     execution_type=CatalogExecutionType.PYTHON_SCRIPT,
                     target="scripts/local_smoke.py",
+                    system="local",
                 )
             ],
             systems=[
@@ -399,7 +418,7 @@ class TestCatalogRegistryTranslation:
         result = registry.translate_match(match, _make_request(raw_request="run device-check"))
 
         assert result.commands[0].command == ["./bin/device-check"]
-        assert result.commands[0].metadata["catalog_system"] == "local"
+        assert result.commands[0].metadata["catalog_system"] == "devbox"
 
     def test_runtime_env_overrides_catalog_env(self) -> None:
         registry = _make_registry()
@@ -458,7 +477,68 @@ class TestCatalogRegistryTranslation:
         assert command.metadata["catalog_system"] == "lab-a"
         assert command.metadata["catalog_default_system"] == "devbox"
         assert command.metadata["catalog_system_override"] == "lab-a"
-        assert any("Overriding saved system" in warning for warning in result.warnings)
+        assert any("Overriding saved default system" in warning for warning in result.warnings)
+
+    def test_systemless_entry_requires_runtime_system_choice(self) -> None:
+        registry = CatalogRegistry(
+            entries=[
+                CatalogEntry(
+                    alias="lt",
+                    execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                    target="scripts/local_smoke.py",
+                )
+            ],
+            systems=[
+                CatalogSystem(
+                    alias="lab-a",
+                    transport=CatalogSystemTransport.SSH,
+                    hostname="lab-a.internal.example",
+                ),
+            ],
+        )
+
+        match = registry.match_request("run lt")
+        result = registry.translate_match(match, _make_request(raw_request="run lt"))
+
+        assert result.commands == []
+        assert any("no saved system was specified" in warning for warning in result.warnings)
+        assert any("lab-a" in warning for warning in result.warnings)
+
+    def test_systemless_entry_uses_explicit_runtime_system(self) -> None:
+        registry = CatalogRegistry(
+            entries=[
+                CatalogEntry(
+                    alias="lt",
+                    execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                    target="scripts/local_smoke.py",
+                    env={"ENTRY_ENV": "1"},
+                )
+            ],
+            systems=[
+                CatalogSystem(
+                    alias="lab-a",
+                    transport=CatalogSystemTransport.SSH,
+                    hostname="lab-a.internal.example",
+                    working_directory="/remote/repo",
+                    env={"SYSTEM_ENV": "lab-a"},
+                ),
+            ],
+        )
+
+        match = registry.match_request("run lt in lab-a")
+        result = registry.translate_match(
+            match,
+            _make_request(raw_request="run lt in lab-a"),
+            system_override="lab-a",
+        )
+
+        assert len(result.commands) == 1
+        command = result.commands[0]
+        assert command.working_directory == "/remote/repo"
+        assert command.env == {"SYSTEM_ENV": "lab-a", "ENTRY_ENV": "1"}
+        assert command.metadata["catalog_system"] == "lab-a"
+        assert command.metadata["catalog_default_system"] == ""
+        assert command.metadata["catalog_target"] == "scripts/local_smoke.py"
 
     def test_extra_args_are_ignored_in_catalog_mode(self) -> None:
         registry = _make_registry()

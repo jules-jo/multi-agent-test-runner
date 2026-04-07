@@ -10,6 +10,7 @@ When catalog mode is enabled, the system should:
 - refuse unknown or ambiguous requests
 - build commands only from saved definitions
 - fail closed when a saved definition references an unknown execution system
+- require an explicit saved system choice at run time when an entry has no default system
 
 ## Current File Shape
 
@@ -31,7 +32,7 @@ Top-level fields:
 
 ## Systems
 
-Each system describes where a saved test is allowed to run.
+Each system describes where a saved test may run when the user or session selects it.
 
 Current fields:
 
@@ -92,7 +93,8 @@ Current execution types:
 
 Behavior rules:
 
-- `system` defaults to `local`
+- `system` is now optional and acts as a legacy/default system when present
+- if `system` is blank, the run must supply a saved system alias such as `on lab-a` or the interactive CLI will ask the user which saved system to use
 - ad hoc user-provided extra args are ignored in catalog mode
 - entry-level `working_directory` overrides the system default
 - entry-level `env` overrides the system `env`
@@ -100,6 +102,7 @@ Behavior rules:
 - local-only runtime env injection is intentionally not copied onto `ssh` commands
 - a request may use a saved per-run system override such as `on lab-a`, but the override must still resolve to a saved system alias in the catalog
 - `python_script` entries use `system.python_command` when present, otherwise they default to `python`
+- `args` now behave as optional baseline arguments; request-specific runtime arguments are resolved separately from the user request and command help output
 
 ## Resolution Rules
 
@@ -111,6 +114,23 @@ Matching is deterministic:
 4. no match means the request is not runnable
 
 The catalog is the execution authority. LLM-based parsing may help interpret the request, but it should not invent runnable commands outside the saved catalog.
+
+## Runtime Argument Resolution
+
+Catalog-backed execution now has a first-pass runtime argument resolver.
+
+Current behavior:
+
+- if the request contains value-oriented runtime intent such as `for 10 iterations`
+- the resolver probes the selected saved command with `--help` and `-h`
+- it parses the available CLI options from that help output
+- it maps the requested value label onto the best matching value-taking option
+- it appends the derived flag/value pair to the saved base command
+
+Current limitations:
+
+- this is currently a first-pass value-argument mapper, not a full semantic planner for all possible CLI shapes
+- if the resolver cannot confidently map the request onto a supported option, the run fails closed and asks for clarification instead of guessing
 
 ## Current Gaps
 
@@ -124,8 +144,8 @@ The interactive CLI now includes a deterministic first-pass registration flow:
 
 1. user issues a request that does not match any saved alias
 2. the CLI offers to register a new catalog entry
-3. the user confirms alias, execution type, target path, system alias, and optional metadata
-4. if the referenced system does not exist yet, the CLI collects a minimal `local` or `ssh` system definition
+3. the user confirms alias, execution type, target path, an optional default system alias, and optional metadata
+4. if the referenced default system does not exist yet, the CLI collects a minimal `local` or `ssh` system definition
 5. the entry is saved into the catalog
 6. the CLI can optionally rerun the new saved alias immediately
 

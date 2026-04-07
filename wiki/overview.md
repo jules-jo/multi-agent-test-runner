@@ -13,11 +13,13 @@ The current product direction is narrowing from a generic natural-language test 
 - The one-shot, piped, and terminal interactive CLI paths are now integrated with the orchestrator.
 - A deterministic JSON-backed test catalog now exists, and this repo now auto-loads `registry/catalog.json` by default for closed-world execution.
 - The catalog schema now models named execution systems as well as runnable test entries.
+- Catalog entries can now omit a default system, which makes system choice a run-time clarification step instead of a required saved field.
 - Cataloged `ssh` systems can now execute through a dedicated SSH target instead of failing closed during translation.
 - Interactive CLI mode can now teach a new catalog entry after an unknown request and optionally rerun the saved alias immediately.
 - The CLI can now list, show, edit, and delete saved catalog entries without going through the orchestrator.
 - The CLI can now list, show, edit, and delete saved execution systems without going through the orchestrator.
 - Interactive CLI mode now keeps lightweight session memory for saved-test follow-ups and ambiguity resolution.
+- Catalog-backed full runs now include a first-pass runtime argument resolver that probes command help on the selected system and derives supported value flags from the request.
 - SSH execution now does a basic preflight so missing local `ssh` binaries and unreachable destinations fail earlier with clearer error messages.
 - Password-based SSH execution is now supported for saved systems when the password is provided through an environment variable instead of the catalog file.
 - Saved systems can now declare a system-level Python interpreter such as `python3.8` for `python_script` entries.
@@ -59,6 +61,8 @@ The current product direction is narrowing from a generic natural-language test 
 - Unknown requests in interactive mode can now branch into a deterministic catalog registration dialogue that persists approved entry/system details into `registry/catalog.json`.
 - Explicit catalog-management commands like `list saved tests`, `edit test <alias>`, `list systems`, and `edit system <alias>` are now handled locally at the CLI front door.
 - Interactive CLI sessions now remember the last matched saved alias, can resolve ambiguous catalog matches with a short alias/number reply, and can pass a saved system override such as `on lab-a` into catalog resolution.
+- When a saved test has no default system, interactive CLI mode now prompts for a saved system alias or number and reruns the chosen test on that system.
+- Full catalog-backed runs now probe `--help`/`-h` on the selected system to derive request-specific value arguments such as iteration counts instead of requiring every runtime flag to be hard-coded in `entries.args`.
 - Closed-world catalog mode now auto-enables in this repo when `registry/catalog.json` exists. `TEST_CATALOG_PATH` remains an override, and `TEST_CATALOG_PATH=""` explicitly disables repo auto-discovery.
 - The shipped default catalog file is intentionally empty, so unknown requests now fail safely and point the user to the catalog file instead of falling back to freeform execution.
 - CLI dry runs now surface catalog clarification failures as non-zero results instead of pretending the request is runnable.
@@ -78,6 +82,7 @@ The current product direction is narrowing from a generic natural-language test 
 - Serialized execution summaries now preserve the last attempt's stdout/stderr so launch failures retain useful context during troubleshooting.
 - The main regression bundle covering config, catalog, parser, CLI, execution targets, attempts, delegation wiring, and troubleshooter wiring now passes at `329 passed, 16 warnings`.
 - The current main regression bundle now passes at `340 passed, 16 warnings` after adding system-level Python interpreter selection for cataloged `python_script` runs.
+- The current main regression bundle now passes at `350 passed, 19 warnings` after making default systems optional and adding help-probed runtime argument resolution for catalog-backed runs.
 
 ## Current Known Gaps
 

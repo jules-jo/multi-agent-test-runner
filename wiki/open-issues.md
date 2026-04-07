@@ -29,7 +29,7 @@
 ### Interactive Conversation Depth Is Still Thin
 
 - Interactive mode now routes requests through the orchestrator, but it still behaves as a sequence of independent requests.
-- The CLI now preserves lightweight session state for last-alias follow-ups and ambiguous alias clarification, but there is still no deeper threaded conversation model for approvals, edits, or longer-running multi-turn plans.
+- The CLI now preserves lightweight session state for last-alias follow-ups, ambiguous alias clarification, and system-selection clarification for systemless entries, but there is still no deeper threaded conversation model for approvals, edits, or longer-running multi-turn plans.
 - Broader conversational intents are still not modeled separately from task requests.
 
 ### Catalog Teaching Workflow Is Still Thin
@@ -45,6 +45,12 @@
 - Basic deterministic SSH preflight now exists, including local `ssh` client availability checks and short remote reachability checks.
 - Password-based SSH auth is now supported through an env-var password reference and a Python SSH backend.
 - What is still missing is broader operational hardening: better remote environment/bootstrap handling, artifact collection, richer remediation guidance, host-key policy hardening, and more real-world validation against remote hosts.
+
+### Runtime Argument Resolution Is Still First-Pass
+
+- Catalog-backed runs can now probe `--help` and `-h` on the selected system and derive some value-based runtime flags from the request.
+- The current resolver is intentionally conservative and only handles first-pass value-option mapping cleanly.
+- Broader semantic argument planning, multi-parameter extraction, and richer clarification loops are still missing.
 
 ## Tracking Note
 
