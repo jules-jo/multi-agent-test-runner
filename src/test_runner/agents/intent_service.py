@@ -155,7 +155,7 @@ class IntentParserService:
         self._catalog_registry = catalog_registry or self._load_catalog_registry()
         self._catalog_system_override = (catalog_system_override or "").strip()
         self._catalog_argument_resolver = (
-            catalog_argument_resolver or CatalogArgumentResolver()
+            catalog_argument_resolver or CatalogArgumentResolver(config)
         )
 
         # Only build the LLM-backed parser if we might need it

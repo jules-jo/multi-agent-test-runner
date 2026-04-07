@@ -7,13 +7,17 @@ help output on the selected execution system.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass, replace
 from pathlib import PurePath
 from typing import Any
 
+from openai import AsyncOpenAI
+
 from test_runner.agents.parser import ParsedTestRequest
+from test_runner.config import Config
 from test_runner.execution.command_translator import TestCommand
 from test_runner.execution.targets import (
     ExecutionStatus,
@@ -22,6 +26,29 @@ from test_runner.execution.targets import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SEMANTIC_HINT_SYSTEM_PROMPT = """\
+You are a runtime argument planner for a closed-world test runner.
+
+Your job is to read a user's latest request plus the probed CLI help for one
+saved test command, then extract candidate argument values the user explicitly
+requested or very strongly implied.
+
+Rules:
+1. Never invent new values.
+2. Never invent command names or flags.
+3. Return only label/value pairs that could plausibly map onto the probed CLI.
+4. Use short human-readable labels that reflect the user's meaning or the CLI
+   help text, such as "name", "display name", "iterations", or "mode".
+5. If nothing concrete is present, return an empty hints list.
+
+Return ONLY JSON in this format:
+{
+  "hints": [
+    {"label": "<label>", "value": "<value>"}
+  ]
+}
+"""
 
 
 @dataclass(frozen=True)
@@ -66,6 +93,14 @@ class RuntimeArgumentResolution:
     command: TestCommand | None
     warnings: tuple[str, ...] = ()
     needs_clarification: bool = False
+
+
+@dataclass(frozen=True)
+class PlannedHintResult:
+    """Candidate value hints from a semantic planner."""
+
+    hints: tuple[RequestedValueHint, ...] = ()
+    warnings: tuple[str, ...] = ()
 
 
 _VALUE_HINT_PATTERNS = (
@@ -114,11 +149,139 @@ def _strip_wrapping_quotes(value: str) -> str:
     return stripped
 
 
+def _config_has_llm(config: Config | None) -> bool:
+    if config is None:
+        return False
+    return bool(config.llm_base_url and config.api_key and config.model_id)
+
+
+def _strip_code_fences(raw: str) -> str:
+    cleaned = raw.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    return cleaned.strip()
+
+
+def _parse_semantic_hint_response(raw: str) -> list[RequestedValueHint]:
+    cleaned = _strip_code_fences(raw)
+    if not cleaned:
+        return []
+
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        logger.warning("Could not parse semantic hint planner response: %s", raw[:200])
+        return []
+
+    raw_hints = data.get("hints", [])
+    if not isinstance(raw_hints, list):
+        return []
+
+    hints: list[RequestedValueHint] = []
+    seen: set[tuple[str, str]] = set()
+    for item in raw_hints:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label", "")).strip()
+        value = _strip_wrapping_quotes(str(item.get("value", "")).strip())
+        if not label or not value:
+            continue
+        key = _normalize_hint_key(label, value)
+        if key in seen:
+            continue
+        seen.add(key)
+        hints.append(RequestedValueHint(label=label, value=value))
+    return hints
+
+
+class OpenAISemanticHintPlanner:
+    """Use the configured OpenAI-compatible backend to extract runtime values."""
+
+    def __init__(self, config: Config, *, timeout_seconds: int = 20) -> None:
+        self._config = config
+        self._timeout_seconds = timeout_seconds
+        self._client = AsyncOpenAI(
+            base_url=config.llm_base_url,
+            api_key=config.api_key,
+        )
+
+    async def plan(
+        self,
+        request_text: str,
+        *,
+        alias: str,
+        help_text: str,
+        options: list[HelpOption],
+        required_parameters: list[RequiredParameter],
+        existing_hints: list[RequestedValueHint],
+    ) -> PlannedHintResult:
+        option_lines = [
+            f"- {' / '.join(option.flags)} :: {option.description or '(no description)'}"
+            for option in options
+            if option.expects_value
+        ]
+        required_lines = [
+            f"- {parameter.label} ({parameter.kind})"
+            for parameter in required_parameters
+        ]
+        existing_hint_lines = [
+            f"- {hint.label} = {hint.value}"
+            for hint in existing_hints
+        ]
+        user_prompt = (
+            f"Saved test alias: {alias}\n\n"
+            f"Latest user request:\n{request_text}\n\n"
+            "Existing extracted hints:\n"
+            + ("\n".join(existing_hint_lines) if existing_hint_lines else "- none")
+            + "\n\n"
+            "Value-taking CLI options:\n"
+            + ("\n".join(option_lines) if option_lines else "- none")
+            + "\n\n"
+            "Currently required parameters:\n"
+            + ("\n".join(required_lines) if required_lines else "- none")
+            + "\n\n"
+            "Help excerpt:\n"
+            + help_text[:6000]
+        )
+
+        try:
+            response = await self._client.chat.completions.create(
+                model=self._config.model_id,
+                messages=[
+                    {"role": "system", "content": _SEMANTIC_HINT_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.0,
+                max_tokens=300,
+                timeout=self._timeout_seconds,
+            )
+        except Exception as exc:
+            logger.warning("Semantic runtime-argument planning failed: %s", exc)
+            return PlannedHintResult(
+                warnings=(f"Semantic runtime-argument planning failed: {exc}",),
+            )
+
+        raw_content = response.choices[0].message.content or ""
+        return PlannedHintResult(hints=tuple(_parse_semantic_hint_response(raw_content)))
+
+
 class CatalogArgumentResolver:
     """Derive runtime CLI flags from a request by probing command help."""
 
-    def __init__(self, *, help_timeout_seconds: int = 15) -> None:
+    def __init__(
+        self,
+        config: Config | None = None,
+        *,
+        help_timeout_seconds: int = 15,
+        semantic_hint_planner: OpenAISemanticHintPlanner | Any | None = None,
+    ) -> None:
         self._help_timeout_seconds = help_timeout_seconds
+        if semantic_hint_planner is not None:
+            self._semantic_hint_planner = semantic_hint_planner
+        elif _config_has_llm(config):
+            self._semantic_hint_planner = OpenAISemanticHintPlanner(config)
+        else:
+            self._semantic_hint_planner = None
 
     async def resolve(
         self,
@@ -162,6 +325,12 @@ class CatalogArgumentResolver:
         warnings = list(help_warnings)
         alias = str(command.metadata.get("catalog_alias", "saved test"))
         runtime_args: list[str] = []
+        planned_positionals: dict[str, str] = {}
+        provided_option_flags = {
+            token
+            for token in command.command[len(self._base_command_tokens(command)):]
+            if token.startswith("-")
+        }
 
         for hint in hints:
             option = self._select_option(options, hint)
@@ -175,9 +344,57 @@ class CatalogArgumentResolver:
                     warnings=tuple(warnings),
                     needs_clarification=True,
                 )
+            if option.primary_flag in provided_option_flags:
+                continue
             runtime_args.extend([option.primary_flag, hint.value])
+            provided_option_flags.add(option.primary_flag)
 
         required_parameters = self._parse_required_parameters(help_text, command, options)
+        missing_parameters = self._find_missing_required_parameters(
+            command,
+            options=options,
+            required=required_parameters,
+            runtime_args=runtime_args,
+        )
+        if self._semantic_hint_planner is not None and (not hints or missing_parameters):
+            planned = await self._semantic_hint_planner.plan(
+                request.raw_request,
+                alias=alias,
+                help_text=help_text,
+                options=options,
+                required_parameters=missing_parameters or required_parameters,
+                existing_hints=hints,
+            )
+            warnings.extend(planned.warnings)
+            for hint in planned.hints:
+                if _normalize_hint_key(hint.label, hint.value) in {
+                    _normalize_hint_key(existing.label, existing.value)
+                    for existing in hints
+                }:
+                    continue
+                option = self._select_option(options, hint)
+                if option is not None:
+                    if option.primary_flag in provided_option_flags:
+                        continue
+                    runtime_args.extend([option.primary_flag, hint.value])
+                    provided_option_flags.add(option.primary_flag)
+                    continue
+
+                positional = self._select_positional_parameter(
+                    missing_parameters or required_parameters,
+                    hint,
+                    claimed_labels=set(planned_positionals),
+                )
+                if positional is not None:
+                    planned_positionals[positional.label] = hint.value
+
+        if planned_positionals:
+            for parameter in required_parameters:
+                if parameter.kind != "positional":
+                    continue
+                if parameter.label in planned_positionals:
+                    runtime_args.append(planned_positionals[parameter.label])
+
         missing_parameters = self._find_missing_required_parameters(
             command,
             options=options,
@@ -209,6 +426,32 @@ class CatalogArgumentResolver:
             warnings=tuple(warnings),
             needs_clarification=False,
         )
+
+    def _select_positional_parameter(
+        self,
+        parameters: list[RequiredParameter],
+        hint: RequestedValueHint,
+        *,
+        claimed_labels: set[str],
+    ) -> RequiredParameter | None:
+        best: tuple[int, RequiredParameter] | None = None
+        hint_tokens = set(hint.tokens)
+        for parameter in parameters:
+            if parameter.kind != "positional":
+                continue
+            if parameter.label in claimed_labels:
+                continue
+            parameter_tokens = set(
+                _normalize_tokens(" ".join(filter(None, [parameter.label, parameter.metavar])))
+            )
+            score = len(hint_tokens & parameter_tokens)
+            if score <= 0:
+                continue
+            if best is None or score > best[0]:
+                best = (score, parameter)
+        if best is None:
+            return None
+        return best[1]
 
     def _extract_value_hints(self, request: str) -> list[RequestedValueHint]:
         candidates: list[tuple[int, RequestedValueHint]] = []

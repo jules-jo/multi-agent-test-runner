@@ -69,3 +69,5 @@
 - Re-ran the main regression bundle successfully after the required-argument clarification change: `355 passed, 19 warnings`.
 - Extended runtime argument extraction beyond numeric shorthand so keyed phrases like `iteration is 10`, `name is John`, and mixed replies now map onto probed CLI options in catalog mode.
 - Re-ran the main regression bundle successfully after the keyed runtime-argument parsing change: `357 passed, 19 warnings`.
+- Added LLM-assisted runtime-argument planning so freer-form phrasing can be converted into candidate label/value pairs when an OpenAI-compatible backend is configured, while still validating those candidates against probed CLI help before execution.
+- Re-ran the main regression bundle successfully after the LLM-assisted runtime-argument planning change: `359 passed, 19 warnings`.

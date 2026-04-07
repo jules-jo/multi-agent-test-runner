@@ -125,6 +125,7 @@ Current behavior:
 - or keyed follow-up phrases such as `iteration is 10` or `name is John`
 - the resolver probes the selected saved command with `--help` and `-h`
 - it parses the available CLI options from that help output
+- when an OpenAI-compatible backend is configured, it can also ask the LLM for candidate label/value pairs from freer-form phrasing before validating them
 - it maps the requested value label onto the best matching value-taking option
 - it appends the derived flag/value pair to the saved base command
 - even when the request does not include value hints, the resolver now probes help text to detect obviously required arguments before execution
@@ -132,8 +133,9 @@ Current behavior:
 
 Current limitations:
 
-- this is currently a first-pass value-argument mapper, not a full semantic planner for all possible CLI shapes
+- this is now an LLM-assisted value-argument mapper, not a full unconstrained planner for all possible CLI shapes
 - keyed assignment parsing is now supported for simple `label is value` / `label = value` phrases, but broader conversational paraphrases still need explicit coverage
+- LLM-derived candidate values are still validated against probed help output; unsupported or ambiguous mappings still fail closed instead of being guessed
 - if the resolver cannot confidently map the request onto a supported option, the run fails closed and asks for clarification instead of guessing
 - required-argument detection is usage-text driven, so it is strongest for CLIs with conventional `usage:` / `--help` output
 

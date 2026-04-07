@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 
 from test_runner.agents.parser import ParsedTestRequest, TestFramework, TestIntent
-from test_runner.catalog_arguments import CatalogArgumentResolver
+from test_runner.catalog_arguments import (
+    CatalogArgumentResolver,
+    PlannedHintResult,
+    RequestedValueHint,
+)
 from test_runner.execution.command_translator import TestCommand
 
 
@@ -152,6 +156,97 @@ class TestCatalogArgumentResolver:
         assert result.command is None
         assert result.needs_clarification is True
         assert any("Could not map requested" in warning for warning in result.warnings)
+
+    @pytest.mark.asyncio
+    async def test_semantic_planner_can_fill_missing_required_values(self, monkeypatch):
+        class FakePlanner:
+            async def plan(
+                self,
+                request_text,
+                *,
+                alias,
+                help_text,
+                options,
+                required_parameters,
+                existing_hints,
+            ):
+                return PlannedHintResult(
+                    hints=(
+                        RequestedValueHint(label="display name", value="John"),
+                        RequestedValueHint(label="iterations", value="10"),
+                    ),
+                )
+
+        resolver = CatalogArgumentResolver(semantic_hint_planner=FakePlanner())
+
+        async def fake_probe(command):
+            return (
+                "usage: agent_test.py [-h] --name NAME -l LOOPS\n"
+                "  --name NAME        Display name for the run\n"
+                "  -l, --loops LOOPS  Number of iterations to run\n",
+                (),
+            )
+
+        monkeypatch.setattr(resolver, "_probe_help_text", fake_probe)
+
+        result = await resolver.resolve(
+            _make_command(),
+            request=_make_request("run agent test and set the display name to John and loop it 10 times"),
+        )
+
+        assert result.command is not None
+        assert result.command.command == [
+            "python3.8",
+            "agent_test.py",
+            "--name",
+            "John",
+            "-l",
+            "10",
+        ]
+        assert result.needs_clarification is False
+
+    @pytest.mark.asyncio
+    async def test_semantic_planner_can_add_optional_value_argument(self, monkeypatch):
+        class FakePlanner:
+            async def plan(
+                self,
+                request_text,
+                *,
+                alias,
+                help_text,
+                options,
+                required_parameters,
+                existing_hints,
+            ):
+                return PlannedHintResult(
+                    hints=(RequestedValueHint(label="execution mode", value="debug"),),
+                )
+
+        resolver = CatalogArgumentResolver(semantic_hint_planner=FakePlanner())
+
+        async def fake_probe(command):
+            return (
+                "Usage: agent_test.py [options]\n"
+                "  --mode MODE        Execution mode\n",
+                (),
+            )
+
+        monkeypatch.setattr(resolver, "_probe_help_text", fake_probe)
+
+        result = await resolver.resolve(
+            _make_command(),
+            request=_make_request("run agent test in debug mode"),
+        )
+
+        assert result.command is not None
+        assert result.command.command == [
+            "python3.8",
+            "agent_test.py",
+            "--mode",
+            "debug",
+        ]
+        assert result.command.metadata["catalog_runtime_args"] == ["--mode", "debug"]
+        assert result.needs_clarification is False
 
     @pytest.mark.asyncio
     async def test_request_without_runtime_value_keeps_original_command(self):
