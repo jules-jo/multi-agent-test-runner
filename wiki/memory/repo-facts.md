@@ -266,7 +266,7 @@
 
 ## Runtime Help-Probed Arguments
 
-- Fact: Catalog-backed full runs now have a first-pass runtime argument resolver that probes the saved command with `--help` or `-h` on the selected local or SSH system, parses the available options, and maps value-oriented user phrases such as `for 10 iterations` onto supported CLI flags.
+- Fact: Catalog-backed full runs now have a first-pass runtime argument resolver that probes the saved command with `--help` or `-h` on the selected local or SSH system, parses the available options, maps value-oriented user phrases such as `for 10 iterations` onto supported CLI flags, and blocks execution early when help output suggests required arguments are still missing.
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/catalog_arguments.py`, `src/test_runner/agents/intent_service.py`, and `tests/test_catalog_arguments.py`
@@ -278,6 +278,14 @@
 - Scope: repo
 - Confidence: high
 - Source: `src/test_runner/catalog.py`, `src/test_runner/cli.py`, and `tests/test_cli.py`
+- Last verified: 2026-04-07
+
+## Pending Runtime-Argument Follow-Up
+
+- Fact: Interactive CLI sessions now preserve pending runtime-argument clarification state, so after a saved test stops on missing required arguments, a short follow-up like `for 10 iterations` can be rewritten into a retry of the same saved test on the same chosen system.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/cli.py` and `tests/test_cli.py`
 - Last verified: 2026-04-07
 
 ## SSH Preflight

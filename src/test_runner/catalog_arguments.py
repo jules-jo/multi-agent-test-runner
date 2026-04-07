@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, replace
+from pathlib import PurePath
 from typing import Any
 
 from test_runner.agents.parser import ParsedTestRequest
@@ -46,6 +47,16 @@ class HelpOption:
     @property
     def primary_flag(self) -> str:
         return self.flags[0]
+
+
+@dataclass(frozen=True)
+class RequiredParameter:
+    """One required CLI parameter inferred from usage/help text."""
+
+    kind: str
+    label: str
+    flags: tuple[str, ...] = ()
+    metavar: str = ""
 
 
 @dataclass(frozen=True)
@@ -99,11 +110,13 @@ class CatalogArgumentResolver:
     ) -> RuntimeArgumentResolution:
         """Return a command augmented with runtime-derived arguments."""
         hints = self._extract_value_hints(request.raw_request)
-        if not hints:
-            return RuntimeArgumentResolution(command=command)
-
         help_text, help_warnings = await self._probe_help_text(command)
         if not help_text:
+            if not hints:
+                return RuntimeArgumentResolution(
+                    command=command,
+                    warnings=help_warnings,
+                )
             alias = str(command.metadata.get("catalog_alias", "saved test"))
             warning = (
                 f"Could not inspect supported arguments for {alias!r}; "
@@ -116,7 +129,7 @@ class CatalogArgumentResolver:
             )
 
         options = self._parse_help_options(help_text)
-        if not options:
+        if not options and hints:
             alias = str(command.metadata.get("catalog_alias", "saved test"))
             warning = (
                 f"Help output for {alias!r} did not reveal any runnable options; "
@@ -128,9 +141,9 @@ class CatalogArgumentResolver:
                 needs_clarification=True,
             )
 
-        runtime_args: list[str] = []
         warnings = list(help_warnings)
         alias = str(command.metadata.get("catalog_alias", "saved test"))
+        runtime_args: list[str] = []
 
         for hint in hints:
             option = self._select_option(options, hint)
@@ -145,6 +158,24 @@ class CatalogArgumentResolver:
                     needs_clarification=True,
                 )
             runtime_args.extend([option.primary_flag, hint.value])
+
+        required_parameters = self._parse_required_parameters(help_text, command, options)
+        missing_parameters = self._find_missing_required_parameters(
+            command,
+            options=options,
+            required=required_parameters,
+            runtime_args=runtime_args,
+        )
+        if missing_parameters:
+            warnings.append(
+                f"Saved test {alias!r} requires additional arguments before it can run: "
+                f"{', '.join(param.label for param in missing_parameters)}."
+            )
+            return RuntimeArgumentResolution(
+                command=None,
+                warnings=tuple(warnings),
+                needs_clarification=True,
+            )
 
         metadata = dict(command.metadata)
         metadata["catalog_runtime_args"] = list(runtime_args)
@@ -230,6 +261,22 @@ class CatalogArgumentResolver:
                 return SSHTarget.from_metadata(system_config)
         return LocalTarget()
 
+    def _base_command_tokens(self, command: TestCommand) -> list[str]:
+        metadata = command.metadata or {}
+        execution_type = str(metadata.get("catalog_execution_type", "")).strip().lower()
+        target = str(metadata.get("catalog_target", "")).strip()
+        if not target:
+            return []
+
+        system_config = metadata.get("catalog_system_config")
+        python_command = "python"
+        if isinstance(system_config, dict):
+            python_command = str(system_config.get("python_command") or "python")
+
+        if execution_type == "python_script":
+            return [python_command, target]
+        return [target]
+
     def _parse_help_options(self, help_text: str) -> list[HelpOption]:
         options: list[HelpOption] = []
         for line in help_text.splitlines():
@@ -261,6 +308,200 @@ class CatalogArgumentResolver:
                 )
             )
         return options
+
+    def _parse_required_parameters(
+        self,
+        help_text: str,
+        command: TestCommand,
+        options: list[HelpOption],
+    ) -> list[RequiredParameter]:
+        usage_text = self._extract_usage_text(help_text)
+        if not usage_text:
+            return []
+
+        required_text = self._strip_optional_usage_segments(usage_text)
+        if not required_text.strip():
+            return []
+
+        known_base_tokens = self._known_base_usage_tokens(command)
+        option_lookup: dict[str, HelpOption] = {}
+        for option in options:
+            for flag in option.flags:
+                option_lookup[flag] = option
+
+        required: list[RequiredParameter] = []
+        tokens = re.findall(r"[^\s]+", required_text)
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if token.lower() == "usage:":
+                index += 1
+                continue
+            if token in known_base_tokens:
+                index += 1
+                continue
+            if token.startswith("-"):
+                option = option_lookup.get(token)
+                label = token
+                metavar = ""
+                if option is not None:
+                    long_flags = [flag for flag in option.flags if flag.startswith("--")]
+                    if long_flags:
+                        label = long_flags[0]
+                    metavar = self._extract_option_metavar(token, usage_text)
+                else:
+                    metavar = self._extract_option_metavar(token, usage_text)
+                required.append(
+                    RequiredParameter(
+                        kind="option",
+                        label=label,
+                        flags=option.flags if option is not None else (token,),
+                        metavar=metavar,
+                    )
+                )
+                if metavar and index + 1 < len(tokens) and tokens[index + 1] == metavar:
+                    index += 1
+                elif (
+                    index + 1 < len(tokens)
+                    and not tokens[index + 1].startswith("-")
+                    and tokens[index + 1] not in known_base_tokens
+                ):
+                    index += 1
+                index += 1
+                continue
+
+            positional = token.strip("<>")
+            if positional and positional != "...":
+                required.append(
+                    RequiredParameter(
+                        kind="positional",
+                        label=positional,
+                        metavar=positional,
+                    )
+                )
+            index += 1
+        return required
+
+    def _find_missing_required_parameters(
+        self,
+        command: TestCommand,
+        *,
+        options: list[HelpOption],
+        required: list[RequiredParameter],
+        runtime_args: list[str],
+    ) -> list[RequiredParameter]:
+        if not required:
+            return []
+
+        provided_args = [
+            *command.command[len(self._base_command_tokens(command)):],
+            *runtime_args,
+        ]
+        value_flags = {
+            flag
+            for option in options
+            if option.expects_value
+            for flag in option.flags
+        }
+
+        provided_flags = {
+            token
+            for token in provided_args
+            if token.startswith("-")
+        }
+        positional_values = self._extract_positional_values(
+            provided_args,
+            value_flags=value_flags,
+        )
+
+        missing: list[RequiredParameter] = []
+        positional_index = 0
+        for parameter in required:
+            if parameter.kind == "option":
+                if not any(flag in provided_flags for flag in parameter.flags):
+                    missing.append(parameter)
+                continue
+
+            if positional_index >= len(positional_values):
+                missing.append(parameter)
+            else:
+                positional_index += 1
+
+        return missing
+
+    def _extract_positional_values(
+        self,
+        args: list[str],
+        *,
+        value_flags: set[str],
+    ) -> list[str]:
+        positionals: list[str] = []
+        index = 0
+        while index < len(args):
+            token = args[index]
+            if token.startswith("-"):
+                if token in value_flags and index + 1 < len(args):
+                    index += 2
+                    continue
+                index += 1
+                continue
+            positionals.append(token)
+            index += 1
+        return positionals
+
+    def _extract_usage_text(self, help_text: str) -> str:
+        lines = help_text.splitlines()
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped.lower().startswith("usage:"):
+                continue
+
+            usage_parts = [stripped]
+            cursor = index + 1
+            while cursor < len(lines):
+                continuation = lines[cursor]
+                if not continuation.startswith(" "):
+                    break
+                continuation_stripped = continuation.strip()
+                if not continuation_stripped:
+                    break
+                if continuation_stripped.startswith("-"):
+                    break
+                usage_parts.append(continuation_stripped)
+                cursor += 1
+            return " ".join(usage_parts)
+        return ""
+
+    def _strip_optional_usage_segments(self, usage_text: str) -> str:
+        output: list[str] = []
+        depth = 0
+        for char in usage_text:
+            if char == "[":
+                depth += 1
+                continue
+            if char == "]":
+                depth = max(0, depth - 1)
+                continue
+            if depth == 0:
+                output.append(char)
+        return "".join(output)
+
+    def _known_base_usage_tokens(self, command: TestCommand) -> set[str]:
+        base_tokens = self._base_command_tokens(command)
+        known: set[str] = set()
+        for token in base_tokens:
+            known.add(token)
+            known.add(PurePath(token).name)
+        return {token for token in known if token}
+
+    def _extract_option_metavar(self, flag: str, usage_text: str) -> str:
+        match = re.search(
+            rf"{re.escape(flag)}(?:[ =](<[^>]+>|\[[^\]]+\]|[A-Z][A-Z0-9_-]*|\w+))",
+            usage_text,
+        )
+        if match is None:
+            return ""
+        return match.group(1).strip("<>[]")
 
     def _select_option(
         self,

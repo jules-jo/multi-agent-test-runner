@@ -972,6 +972,64 @@ class TestInteractiveMode:
         assert fake_hub.run.await_args_list[1].args == ("run lt",)
 
     @pytest.mark.asyncio
+    async def test_interactive_missing_runtime_args_reuses_alias_and_system(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.chdir(tmp_path)
+        registry_dir = tmp_path / "registry"
+        registry_dir.mkdir()
+        catalog_path = registry_dir / "catalog.json"
+        catalog_path.write_text(
+            CatalogDocument(
+                systems=[
+                    CatalogSystem(
+                        alias="lab-a",
+                        transport=CatalogSystemTransport.SSH,
+                        hostname="lab-a.example",
+                    )
+                ],
+                entries=[
+                    CatalogEntry(
+                        alias="lt",
+                        execution_type=CatalogExecutionType.PYTHON_SCRIPT,
+                        target="scripts/local_smoke.py",
+                    )
+                ],
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        monkeypatch.delenv("TEST_CATALOG_PATH", raising=False)
+
+        missing_args_state = RunState(request="run lt", phase=RunPhase.FAILED)
+        missing_args_state.errors.append(
+            "Saved test 'lt' requires additional arguments before it can run: --loops."
+        )
+        success_state = RunState(request="run lt for 10 iterations", phase=RunPhase.COMPLETE)
+        seen_overrides: list[str] = []
+        fake_hub = SimpleNamespace(
+            run=AsyncMock(side_effect=[missing_args_state, success_state])
+        )
+
+        def fake_create_orchestrator(config, args, *, catalog_system_override=""):
+            seen_overrides.append(catalog_system_override)
+            return fake_hub
+
+        monkeypatch.setattr(
+            "test_runner.cli._create_orchestrator",
+            fake_create_orchestrator,
+        )
+
+        inputs = iter(["run lt on lab-a", "for 10 iterations", "quit"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+        code = await async_main(["-i"])
+
+        assert code == 0
+        assert seen_overrides == ["lab-a", "lab-a"]
+        assert fake_hub.run.await_args_list[0].args == ("run lt on lab-a",)
+        assert fake_hub.run.await_args_list[1].args == ("run lt for 10 iterations",)
+
+    @pytest.mark.asyncio
     async def test_interactive_run_on_saved_system_passes_override_to_orchestrator(
         self, monkeypatch, tmp_path
     ):

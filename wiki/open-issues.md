@@ -49,6 +49,7 @@
 ### Runtime Argument Resolution Is Still First-Pass
 
 - Catalog-backed runs can now probe `--help` and `-h` on the selected system and derive some value-based runtime flags from the request.
+- The resolver now also detects some clearly required arguments from usage/help text and asks for clarification before execution when they are missing.
 - The current resolver is intentionally conservative and only handles first-pass value-option mapping cleanly.
 - Broader semantic argument planning, multi-parameter extraction, and richer clarification loops are still missing.
 

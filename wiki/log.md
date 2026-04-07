@@ -64,3 +64,6 @@
 - Re-ran the main regression bundle successfully after the system-selection and runtime-argument changes: `350 passed, 19 warnings`.
 - Disabled OpenAI Agents SDK tracing automatically at CLI startup when `OPENAI_API_KEY` is unset, which suppresses the non-fatal trace-export warning for Dataiku-backed runs.
 - Re-ran the focused CLI suite successfully after the tracing change: `58 passed`.
+- Extended runtime argument resolution so catalog-backed runs detect clearly required arguments from help/usage text and fail closed for clarification before execution.
+- Added interactive pending runtime-argument clarification so a short follow-up like `for 10 iterations` can retry the same saved test on the same chosen system.
+- Re-ran the main regression bundle successfully after the required-argument clarification change: `355 passed, 19 warnings`.

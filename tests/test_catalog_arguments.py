@@ -91,6 +91,14 @@ class TestCatalogArgumentResolver:
     @pytest.mark.asyncio
     async def test_request_without_runtime_value_keeps_original_command(self):
         resolver = CatalogArgumentResolver()
+        async def fake_probe(command):
+            return (
+                "Usage: agent_test.py [options]\n"
+                "  --mode MODE        Execution mode\n",
+                (),
+            )
+
+        resolver._probe_help_text = fake_probe  # type: ignore[method-assign]
 
         command = _make_command()
         result = await resolver.resolve(
@@ -98,6 +106,53 @@ class TestCatalogArgumentResolver:
             request=_make_request("run agent test"),
         )
 
-        assert result.command == command
+        assert result.command is not None
+        assert result.command.command == command.command
+        assert result.command.metadata["catalog_runtime_args"] == []
         assert result.needs_clarification is False
         assert result.warnings == ()
+
+    @pytest.mark.asyncio
+    async def test_missing_required_option_requires_clarification(self, monkeypatch):
+        resolver = CatalogArgumentResolver()
+
+        async def fake_probe(command):
+            return (
+                "usage: agent_test.py [-h] -l LOOPS\n"
+                "  -l, --loops LOOPS  Number of iterations to run\n",
+                (),
+            )
+
+        monkeypatch.setattr(resolver, "_probe_help_text", fake_probe)
+
+        result = await resolver.resolve(
+            _make_command(),
+            request=_make_request("run agent test"),
+        )
+
+        assert result.command is None
+        assert result.needs_clarification is True
+        assert any("--loops" in warning for warning in result.warnings)
+
+    @pytest.mark.asyncio
+    async def test_missing_required_positional_requires_clarification(self, monkeypatch):
+        resolver = CatalogArgumentResolver()
+
+        async def fake_probe(command):
+            return (
+                "usage: agent_test.py [-h] target\n"
+                "positional arguments:\n"
+                "  target              Target host\n",
+                (),
+            )
+
+        monkeypatch.setattr(resolver, "_probe_help_text", fake_probe)
+
+        result = await resolver.resolve(
+            _make_command(),
+            request=_make_request("run agent test"),
+        )
+
+        assert result.command is None
+        assert result.needs_clarification is True
+        assert any("target" in warning for warning in result.warnings)

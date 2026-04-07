@@ -126,11 +126,14 @@ Current behavior:
 - it parses the available CLI options from that help output
 - it maps the requested value label onto the best matching value-taking option
 - it appends the derived flag/value pair to the saved base command
+- even when the request does not include value hints, the resolver now probes help text to detect obviously required arguments before execution
+- if required options or positionals appear to be missing, the run fails closed and asks the user for clarification instead of letting the script fail later with an argument parser error
 
 Current limitations:
 
 - this is currently a first-pass value-argument mapper, not a full semantic planner for all possible CLI shapes
 - if the resolver cannot confidently map the request onto a supported option, the run fails closed and asks for clarification instead of guessing
+- required-argument detection is usage-text driven, so it is strongest for CLIs with conventional `usage:` / `--help` output
 
 ## Current Gaps
 

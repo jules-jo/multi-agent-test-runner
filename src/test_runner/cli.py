@@ -222,6 +222,8 @@ class InteractiveSessionState:
     pending_clarification_aliases: tuple[str, ...] = ()
     pending_system_aliases: tuple[str, ...] = ()
     pending_system_entry_alias: str = ""
+    pending_runtime_arg_alias: str = ""
+    pending_runtime_arg_system_alias: str = ""
 
 
 @dataclass(frozen=True)
@@ -448,6 +450,19 @@ def _prepare_interactive_request(
                 ),
             )
 
+    if session_state.pending_runtime_arg_alias:
+        override = _extract_known_system_override(stripped, repository)
+        system_override = override or session_state.pending_runtime_arg_system_alias
+        note = (
+            f"Reusing saved test {session_state.pending_runtime_arg_alias!r} "
+            "while applying the additional runtime arguments from this reply."
+        )
+        return PreparedInteractiveRequest(
+            canonical_request=f"run {session_state.pending_runtime_arg_alias} {stripped}",
+            system_override=system_override,
+            note=note,
+        )
+
     if session_state.pending_clarification_aliases:
         chosen_alias = _match_pending_alias_choice(
             stripped,
@@ -531,6 +546,8 @@ def _remember_catalog_reference(
     session_state.pending_clarification_aliases = ()
     session_state.pending_system_aliases = ()
     session_state.pending_system_entry_alias = ""
+    session_state.pending_runtime_arg_alias = ""
+    session_state.pending_runtime_arg_system_alias = ""
 
 
 def _extract_ambiguous_catalog_aliases(state: RunState) -> tuple[str, ...]:
@@ -600,6 +617,48 @@ def _print_system_clarification_prompt(
     )
     for index, alias in enumerate(systems, start=1):
         console.print(f"[dim]- {index}. {alias}[/dim]")
+
+
+def _extract_missing_runtime_argument_prompt(
+    state: RunState,
+) -> tuple[str, tuple[str, ...]]:
+    """Pull a pending runtime-argument clarification from a failed run state."""
+    pattern = re.compile(
+        r"Saved test '(.+?)' requires additional arguments before it can run:\s*(.+?)\.\s*$",
+        flags=re.IGNORECASE,
+    )
+    for message in [
+        *state.errors,
+        *state.intent_resolution.get("warnings", []),
+    ]:
+        match = pattern.search(message)
+        if match is None:
+            continue
+        alias = match.group(1).strip()
+        arguments = tuple(
+            argument.strip()
+            for argument in match.group(2).split(",")
+            if argument.strip()
+        )
+        if alias and arguments:
+            return alias, arguments
+    return "", ()
+
+
+def _print_runtime_argument_clarification_prompt(
+    entry_alias: str,
+    arguments: tuple[str, ...],
+) -> None:
+    """Tell the user which runtime arguments are still required."""
+    console.print(
+        f"[yellow]Saved test {entry_alias!r} needs more arguments before it can run.[/yellow]"
+    )
+    console.print(
+        "[yellow]Reply with the missing values in natural language and I will retry.[/yellow]"
+    )
+    console.print(
+        f"[dim]- missing: {', '.join(arguments)}[/dim]"
+    )
 
 
 def _prompt_text(prompt: str, *, default: str | None = None) -> str:
@@ -1649,9 +1708,26 @@ async def _handle_request(
         session_state.pending_clarification_aliases = ()
         session_state.pending_system_entry_alias = missing_system_alias
         session_state.pending_system_aliases = missing_system_choices
+        session_state.pending_runtime_arg_alias = ""
+        session_state.pending_runtime_arg_system_alias = ""
         _print_system_clarification_prompt(
             missing_system_alias,
             missing_system_choices,
+        )
+        return 0
+
+    missing_runtime_alias, missing_runtime_arguments = _extract_missing_runtime_argument_prompt(state)
+    if session_state is not None and missing_runtime_alias and missing_runtime_arguments:
+        session_state.pending_clarification_aliases = ()
+        session_state.pending_system_entry_alias = ""
+        session_state.pending_system_aliases = ()
+        session_state.pending_runtime_arg_alias = missing_runtime_alias
+        session_state.pending_runtime_arg_system_alias = (
+            prepared_request.system_override or session_state.last_system_alias
+        )
+        _print_runtime_argument_clarification_prompt(
+            missing_runtime_alias,
+            missing_runtime_arguments,
         )
         return 0
 
@@ -1659,6 +1735,8 @@ async def _handle_request(
     if session_state is not None and ambiguous_aliases:
         session_state.pending_system_entry_alias = ""
         session_state.pending_system_aliases = ()
+        session_state.pending_runtime_arg_alias = ""
+        session_state.pending_runtime_arg_system_alias = ""
         session_state.pending_clarification_aliases = ambiguous_aliases
         _print_alias_clarification_prompt(ambiguous_aliases)
         return 0
