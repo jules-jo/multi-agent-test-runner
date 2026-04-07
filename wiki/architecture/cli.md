@@ -47,4 +47,6 @@ Interactive mode is still task-oriented, not general chat-oriented, but it now h
 
 For local execution, the CLI prepends the active interpreter directory and the repo virtualenv script directory to `PATH`. On Windows that means `.venv/Scripts`; on Unix-like systems that means `.venv/bin`. This allows translated commands such as `pytest ...` to resolve correctly when the CLI itself is launched outside the repo virtualenv.
 
+CLI startup now also disables OpenAI Agents SDK trace export automatically when `OPENAI_API_KEY` is not configured. This suppresses the non-fatal `skipping trace export` warning for Dataiku-backed runs that use the Agents SDK only for local parsing/tracing and do not intend to export traces to OpenAI.
+
 In redirected or piped sessions, prompt text may interleave slightly with rich console output because `input()` writes prompts to stdout while the rich console writes to stderr.

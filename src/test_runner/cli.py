@@ -1376,6 +1376,23 @@ def _setup_logging(level: str) -> None:
     )
 
 
+def _configure_agents_tracing() -> None:
+    """Disable Agents SDK tracing export when no OpenAI tracing key is set."""
+    if os.environ.get("OPENAI_API_KEY"):
+        return
+
+    try:
+        from agents import set_tracing_disabled
+    except Exception:  # noqa: BLE001
+        logger.debug("Agents SDK not importable; skipping tracing configuration.")
+        return
+
+    set_tracing_disabled(True)
+    logger.debug(
+        "Disabled Agents SDK tracing because OPENAI_API_KEY is not configured."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator wiring helpers
 # ---------------------------------------------------------------------------
@@ -1702,6 +1719,7 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
     else:
         log_level = config.log_level
     _setup_logging(log_level)
+    _configure_agents_tracing()
 
     _print_banner()
     logger.debug("Config loaded: autonomy=%s, target=%s", config.autonomy_policy.value, args.target)

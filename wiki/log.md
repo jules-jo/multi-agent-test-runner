@@ -62,3 +62,5 @@
 - Added a first-pass runtime argument resolver that probes saved command help on the selected system and maps value-oriented request phrases onto supported CLI flags.
 - Extended interactive CLI clarification so a systemless saved test can prompt for a saved system alias or number and then rerun on that chosen system.
 - Re-ran the main regression bundle successfully after the system-selection and runtime-argument changes: `350 passed, 19 warnings`.
+- Disabled OpenAI Agents SDK tracing automatically at CLI startup when `OPENAI_API_KEY` is unset, which suppresses the non-fatal trace-export warning for Dataiku-backed runs.
+- Re-ran the focused CLI suite successfully after the tracing change: `58 passed`.

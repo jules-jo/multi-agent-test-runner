@@ -48,6 +48,14 @@
 - Source: `src/test_runner/cli.py` and interactive smoke test
 - Last verified: 2026-04-06
 
+## Agents Tracing Default
+
+- Fact: CLI startup now disables OpenAI Agents SDK tracing automatically when `OPENAI_API_KEY` is unset, which suppresses the non-fatal `skipping trace export` warning for Dataiku-backed runs.
+- Scope: repo
+- Confidence: high
+- Source: `src/test_runner/cli.py` and `tests/test_cli.py`
+- Last verified: 2026-04-07
+
 ## Interactive Session Memory
 
 - Fact: Interactive CLI sessions now keep lightweight turn-local memory for the last matched saved alias, pending ambiguous alias choices, pending saved-system choices for systemless entries, and the last selected saved system. This enables follow-ups like `rerun that` and short clarification replies such as `2`.

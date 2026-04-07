@@ -6,7 +6,7 @@ import io
 import os
 import sys
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -26,6 +26,7 @@ from test_runner.cli import (
     interactive_loop_async,
     _resolve_request,
     _build_default_command_env,
+    _configure_agents_tracing,
     MIN_REQUEST_LENGTH,
     MAX_REQUEST_LENGTH,
     EXIT_COMMANDS,
@@ -71,6 +72,28 @@ class TestValidateRequest:
         text = "run pytest\nwith verbose output"
         result = validate_request(text)
         assert result == text
+
+
+class TestAgentsTracingConfiguration:
+    def test_disables_agents_tracing_when_openai_key_missing(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        fake_agents = SimpleNamespace(set_tracing_disabled=MagicMock())
+        monkeypatch.setitem(sys.modules, "agents", fake_agents)
+
+        _configure_agents_tracing()
+
+        fake_agents.set_tracing_disabled.assert_called_once_with(True)
+
+    def test_leaves_agents_tracing_unchanged_when_openai_key_present(
+        self, monkeypatch
+    ):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        fake_agents = SimpleNamespace(set_tracing_disabled=MagicMock())
+        monkeypatch.setitem(sys.modules, "agents", fake_agents)
+
+        _configure_agents_tracing()
+
+        fake_agents.set_tracing_disabled.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
